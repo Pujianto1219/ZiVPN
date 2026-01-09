@@ -1,6 +1,6 @@
 #!/bin/bash
-# ZiVPN Auto Installer (Early Optimization)
-# Features: IP License (AcilShop), Early Swap/BBR, Domain Input, Silent Install
+# ZiVPN Auto Installer (Ultimate Performance)
+# Features: License Check, Manual Swap, CPU & Network Tuning, Domain Input
 
 # --- 0. PERSIAPAN VARIABEL ---
 export DEBIAN_FRONTEND=noninteractive
@@ -30,7 +30,7 @@ check_license() {
         echo -e "${CYAN} Status   : ${GREEN}Active / Premium${NC}"
         echo -e "${CYAN} IP VPS   : ${YELLOW}$MYIP${NC}"
         echo -e "${GREEN}=============================================${NC}"
-        echo -e "License valid! Memulai optimasi sistem..."
+        echo -e "License valid! Memulai konfigurasi..."
         sleep 2
     else
         clear
@@ -46,55 +46,113 @@ check_license() {
 }
 check_license
 
-# --- 2. SYSTEM OPTIMIZATION (DILAKUKAN DI AWAL) ---
+# --- 2. KONFIGURASI SWAP RAM (MANUAL INPUT) ---
 clear
-echo -e "${YELLOW}[System] Melakukan Optimasi Server (Swap & BBR)...${NC}"
-sleep 1
+echo -e "${YELLOW}=============================================${NC}"
+echo -e "${CYAN}          KONFIGURASI SWAP RAM (VIRTUAL)     ${NC}"
+echo -e "${YELLOW}=============================================${NC}"
+echo -e "Pilih ukuran Swap untuk mencegah VPS error/kill:"
+echo -e "[1] 1 GB (Rekomendasi RAM < 1GB)"
+echo -e "[2] 2 GB (Rekomendasi RAM 2GB)"
+echo -e "[3] 4 GB"
+echo -e "[4] 8 GB"
+echo -e "[x] Skip / Jangan Buat Swap"
+echo -e "---------------------------------------------"
+read -p "Pilih [1-4/x]: " swap_pilih
 
-# A. Set Timezone WIB
-ln -fs /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
+case $swap_pilih in
+    1) SWAP_SIZE=1048576; MSG="1GB" ;;
+    2) SWAP_SIZE=2097152; MSG="2GB" ;;
+    3) SWAP_SIZE=4194304; MSG="4GB" ;;
+    4) SWAP_SIZE=8388608; MSG="8GB" ;;
+    x|X) SWAP_SIZE=0; MSG="SKIP" ;;
+    *) SWAP_SIZE=1048576; MSG="1GB (Default)" ;; # Default ke 1GB jika salah tekan
+esac
 
-# B. Enable IPv4 Forwarding
-echo 1 > /proc/sys/net/ipv4/ip_forward
-sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/g' /etc/sysctl.conf
-
-# C. Auto Swap 1GB (Penting untuk RAM Kecil)
-# Cek apakah swap sudah ada, jika 0 maka buat baru
-SWAP_EXIST=$(free -m | grep Swap | awk '{print $2}')
-if [ "$SWAP_EXIST" -eq 0 ]; then
-    echo -e "${CYAN}-> Membuat Swap File 1GB...${NC}"
-    dd if=/dev/zero of=/swapfile bs=1024 count=1048576 > /dev/null 2>&1
+if [ $SWAP_SIZE -gt 0 ]; then
+    echo -e "${CYAN}-> Membuat Swap File $MSG... Mohon tunggu.${NC}"
+    # Hapus swap lama jika ada
+    swapoff -a >/dev/null 2>&1
+    rm -f /swapfile >/dev/null 2>&1
+    
+    # Buat baru
+    dd if=/dev/zero of=/swapfile bs=1024 count=$SWAP_SIZE > /dev/null 2>&1
     chmod 600 /swapfile
     mkswap /swapfile > /dev/null 2>&1
     swapon /swapfile > /dev/null 2>&1
-    echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+    # Tambah ke fstab agar permanen
+    if ! grep -q "/swapfile" /etc/fstab; then
+        echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+    fi
+    echo -e "${GREEN}-> Swap $MSG Berhasil Dibuat!${NC}"
 else
-    echo -e "${GREEN}-> Swap File sudah ada, skip.${NC}"
+    echo -e "${YELLOW}-> Swap dilewati.${NC}"
 fi
+sleep 2
 
-# D. Tuning Kernel (BBR & Limits)
-echo -e "${CYAN}-> Mengaktifkan Google BBR & Tuning Network...${NC}"
+# --- 3. SYSTEM, CPU & BANDWIDTH OPTIMIZATION ---
+clear
+echo -e "${YELLOW}[System] Melakukan Optimasi CPU & Network...${NC}"
+
+# A. Set Timezone
+ln -fs /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
+
+# B. Install Tools Optimasi
+apt-get update -y > /dev/null 2>&1
+apt-get install -y cpufrequtils irqbalance > /dev/null 2>&1
+
+# C. CPU Governor -> Performance
+echo -e "${CYAN}-> Mengatur CPU Governor ke Performance...${NC}"
+echo 'GOVERNOR="performance"' > /etc/default/cpufrequtils
+systemctl restart cpufrequtils > /dev/null 2>&1
+
+# D. Tuning Sysctl (Network, BBR, CPU Scheduler)
+echo -e "${CYAN}-> Menerapkan Tuning Kernel & TCP Stack...${NC}"
 cat > /etc/sysctl.conf << EOF
-# Tuning ZiVPN
+# --- ZiVPN TUNING START ---
+# 1. IP Forwarding
 net.ipv4.ip_forward=1
+
+# 2. BBR & Congestion Control (Speed Boost)
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
+
+# 3. Network Buffer & Windows (Bandwidth Optimization)
+net.core.rmem_max=67108864
+net.core.wmem_max=67108864
+net.ipv4.tcp_rmem=4096 87380 67108864
+net.ipv4.tcp_wmem=4096 65536 67108864
+net.core.netdev_max_backlog=16384
+net.ipv4.tcp_window_scaling=1
+net.ipv4.tcp_mtu_probing=1
+
+# 4. Connection Limits
+fs.file-max=1000000
+net.ipv4.tcp_max_syn_backlog=8192
+net.ipv4.tcp_max_tw_buckets=5000
+net.ipv4.tcp_tw_reuse=1
+
+# 5. Swap Strategy (Agar RAM fisik diutamakan)
 vm.swappiness=10
 vm.vfs_cache_pressure=50
-net.core.rmem_max=16777216
-net.core.wmem_max=16777216
-fs.file-max=65535
+
+# 6. CPU Scheduler Tuning
+kernel.sched_migration_cost_ns=5000000
+kernel.sched_autogroup_enabled=0
+# --- ZiVPN TUNING END ---
 EOF
 sysctl -p > /dev/null 2>&1
 
-# Update Limits
-echo "* soft nofile 65535" >> /etc/security/limits.conf
-echo "* hard nofile 65535" >> /etc/security/limits.conf
+# Update Limits (File Descriptors)
+echo "* soft nofile 1000000" > /etc/security/limits.conf
+echo "* hard nofile 1000000" >> /etc/security/limits.conf
+echo "root soft nofile 1000000" >> /etc/security/limits.conf
+echo "root hard nofile 1000000" >> /etc/security/limits.conf
 
 echo -e "${GREEN}[System] Optimasi Selesai!${NC}"
 sleep 2
 
-# --- 3. INPUT DOMAIN ---
+# --- 4. INPUT DOMAIN ---
 clear
 echo ""
 echo "========================================================="
@@ -121,20 +179,17 @@ echo ""
 echo " [OK] Domain tersimpan: $DOMAIN"
 sleep 1
 
-# --- 4. INSTALL DEPENDENCIES ---
+# --- 5. INSTALL DEPENDENCIES & BINARY ---
 clear
-echo -e "${YELLOW}[Install] Menginstall Paket Pendukung...${NC}"
-apt-get update -y > /dev/null 2>&1
+echo -e "${YELLOW}[Install] Menginstall Komponen Utama...${NC}"
 apt-get install -y jq curl wget git zip unzip openssl python3 python3-pip cron socat > /dev/null 2>&1
 
-# Stop service jika ada sisa instalasi lama
+# Stop service lama
 systemctl stop zivpn.service > /dev/null 2>&1
 
-# --- 5. DOWNLOAD CORE SERVICE (BINARY) ---
+# Download Binary
 echo -e "${YELLOW}[Install] Mendownload Core VPN...${NC}"
 ARCH=$(uname -m)
-echo -e "${CYAN}-> Detected Architecture: $ARCH${NC}"
-
 if [[ "$ARCH" == "x86_64" ]]; then
     wget -q https://github.com/Pujianto1219/ZiVPN/releases/download/1.0/udp-zivpn-linux-amd64 -O /usr/local/bin/zivpn
 elif [[ "$ARCH" == "aarch64" ]]; then
@@ -143,14 +198,10 @@ else
     echo -e "${RED}Error: Arsitektur $ARCH tidak didukung!${NC}"
     exit 1
 fi
-
 chmod +x /usr/local/bin/zivpn
-echo -e "${GREEN}-> Download Berhasil.${NC}"
 
 # --- 6. SETUP CONFIG & SSL ---
 echo -e "${YELLOW}[Setup] Membuat Config & SSL...${NC}"
-
-# Buat Config Kosong
 cat <<EOF > /etc/zivpn/config.json
 {
   "listen": ":5667",
@@ -169,7 +220,7 @@ openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
     -subj "/C=ID/ST=JKT/L=JKT/O=ZiVPN/OU=VPN/CN=$DOMAIN" \
     -keyout "/etc/zivpn/zivpn.key" -out "/etc/zivpn/zivpn.crt" > /dev/null 2>&1
 
-# --- 7. SETUP SERVICE SYSTEMD ---
+# --- 7. SETUP SERVICE ---
 cat <<EOF > /etc/systemd/system/zivpn.service
 [Unit]
 Description=zivpn VPN Server
@@ -186,7 +237,7 @@ Environment=ZIVPN_LOG_LEVEL=info
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 NoNewPrivileges=true
-LimitNOFILE=65535
+LimitNOFILE=1000000
 
 [Install]
 WantedBy=multi-user.target
@@ -194,7 +245,6 @@ EOF
 
 # --- 8. DOWNLOAD MENU (FILE TERPISAH) ---
 echo -e "${YELLOW}[Install] Menginstall Menu...${NC}"
-# Pastikan file menu.sh sudah ada di repo Anda
 wget -q https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/menu.sh -O /usr/bin/menu
 chmod +x /usr/bin/menu
 
@@ -203,7 +253,7 @@ echo -e "${YELLOW}[Finish] Menjalankan Service...${NC}"
 systemctl enable zivpn.service > /dev/null 2>&1
 systemctl start zivpn.service > /dev/null 2>&1
 
-# Firewall
+# Firewall Setup
 IFACE=$(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1)
 iptables -t nat -A PREROUTING -i $IFACE -p udp --dport 6000:19999 -j DNAT --to-destination :5667
 ufw allow 6000:19999/udp > /dev/null 2>&1
@@ -219,7 +269,7 @@ echo -e "${GREEN}======================================${NC}"
 echo -e "${GREEN}      INSTALASI SELESAI               ${NC}"
 echo -e "${GREEN}======================================${NC}"
 echo -e "Domain : ${YELLOW}$DOMAIN${NC}"
+echo -e "Swap   : ${YELLOW}$MSG${NC}"
+echo -e "BBR    : ${GREEN}Active${NC}"
 echo -e "Status : ${GREEN}VERIFIED (ACILSHOP PREMIUM)${NC}"
-echo -e "Swap   : ${GREEN}ON (1GB)${NC}"
-echo -e "BBR    : ${GREEN}ON${NC}"
 echo -e "Ketik ${YELLOW}menu${NC} untuk mengelola user."
