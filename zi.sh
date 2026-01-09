@@ -1,26 +1,29 @@
 #!/bin/bash
 # Zivpn UDP Module installer
-# Creator Zahid Islam
-# Modified with Embedded Menu
+# Modified: Auto-Install without Password Prompt & Embedded Menu
 
-# --- 1. Update & Install Dependencies (Termasuk JQ) ---
+# --- 1. Update & Install Dependencies ---
 echo -e "Updating server & Installing Dependencies..."
 sudo apt-get update && apt-get upgrade -y
-# JQ wajib diinstall untuk memproses JSON di menu nanti
+# Install JQ (Wajib untuk Menu) dan dependencies lain
 sudo apt-get install -y jq curl wget git zip unzip
 
 systemctl stop zivpn.service 1> /dev/null 2> /dev/null
 
 # --- 2. Download Binary (AMD64) ---
-echo -e "Downloading UDP Service"
+# Jika untuk ARM, ganti link di bawah menjadi udp-zivpn-linux-arm64
+echo -e "Downloading UDP Service..."
 wget https://github.com/Pujianto1219/ZiVPN/releases/download/1.0/udp-zivpn-linux-amd64 -O /usr/local/bin/zivpn 1> /dev/null 2> /dev/null
 chmod +x /usr/local/bin/zivpn
 
 mkdir -p /etc/zivpn 1> /dev/null 2> /dev/null
+
+# Download Config Default (Password default: 'zi')
+echo -e "Downloading Default Config..."
 wget https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/config.json -O /etc/zivpn/config.json 1> /dev/null 2> /dev/null
 
 # --- 3. Generate Cert & Tuning ---
-echo "Generating cert files:"
+echo "Generating cert files..."
 openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj "/C=US/ST=California/L=Los Angeles/O=Example Corp/OU=IT Department/CN=zivpn" -keyout "/etc/zivpn/zivpn.key" -out "/etc/zivpn/zivpn.crt" 2>/dev/null
 
 sysctl -w net.core.rmem_max=16777216 1> /dev/null 2> /dev/null
@@ -48,21 +51,9 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
-# --- 5. Initial Password Setup ---
-echo -e "ZIVPN UDP Passwords"
-read -p "Enter passwords separated by commas, example: pass1,pass2 (Press enter for Default 'zi'): " input_config
-
-if [ -n "$input_config" ]; then
-    IFS=',' read -r -a config <<< "$input_config"
-    if [ ${#config[@]} -eq 1 ]; then
-        config+=(${config[0]})
-    fi
-else
-    config=("zi")
-fi
-
-new_config_str="\"config\": [$(printf "\"%s\"," "${config[@]}" | sed 's/,$//')]"
-sed -i -E "s/\"config\": ?\[[[:space:]]*\"zi\"[[:space:]]*\]/${new_config_str}/g" /etc/zivpn/config.json
+# --- 5. (DIBUANG) Bagian Input Password ---
+# Bagian input manual dan sed replacement telah dihapus agar otomatis.
+# Password akan mengikuti default dari config.json (biasanya "zi").
 
 # --- 6. MEMBUAT SCRIPT MENU OTOMATIS (EMBEDDED) ---
 echo "Creating Menu Script..."
@@ -177,5 +168,6 @@ ufw allow 6000:19999/udp
 ufw allow 5667/udp
 rm zi.* 1> /dev/null 2> /dev/null
 
-echo -e "ZIVPN UDP Installed"
+echo -e "${GREEN}ZIVPN UDP Installed!${NC}"
+echo -e "Default Password: ${YELLOW}zi${NC}"
 echo -e "Ketik command ${YELLOW}menu${NC} untuk mengelola server."
