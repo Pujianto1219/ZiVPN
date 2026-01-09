@@ -1,5 +1,6 @@
 #!/bin/bash
 # Core Installer Script
+# Fix: No Password Prompt & Use Domain from setup.sh
 
 # Warna
 YELLOW='\033[1;33m'
@@ -34,8 +35,9 @@ fi
 
 chmod +x /usr/local/bin/zivpn
 
-# 3. Buat Config Kosong
-echo -e "${YELLOW}[Core] Creating Config...${NC}"
+# 3. Buat Config Kosong (TANPA TANYA PASSWORD)
+# Bagian ini otomatis membuat config dengan list user kosong []
+echo -e "${YELLOW}[Core] Creating Empty Config...${NC}"
 cat <<EOF > /etc/zivpn/config.json
 {
   "listen": ":5667",
@@ -49,8 +51,14 @@ cat <<EOF > /etc/zivpn/config.json
 }
 EOF
 
-# 4. Generate SSL (Menggunakan Domain dari setup.sh)
-DOMAIN=$(cat /etc/zivpn/domain)
+# 4. Generate SSL (Menggunakan Domain yang diinput di setup.sh)
+# Script membaca file /etc/zivpn/domain yang dibuat oleh setup.sh
+if [ -f "/etc/zivpn/domain" ]; then
+    DOMAIN=$(cat /etc/zivpn/domain)
+else
+    DOMAIN=$(curl -s ifconfig.me)
+fi
+
 echo -e "${YELLOW}[Core] Generating SSL for $DOMAIN...${NC}"
 openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
     -subj "/C=ID/ST=JKT/L=JKT/O=ZiVPN/OU=VPN/CN=$DOMAIN" \
@@ -92,4 +100,4 @@ iptables -t nat -A PREROUTING -i $IFACE -p udp --dport 6000:19999 -j DNAT --to-d
 ufw allow 6000:19999/udp > /dev/null 2>&1
 ufw allow 5667/udp > /dev/null 2>&1
 
-rm -f /usr/local/bin/installer.sh # Hapus diri sendiri
+rm -f /usr/local/bin/installer.sh # Bersih-bersih
