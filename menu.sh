@@ -1,6 +1,6 @@
 #!/bin/bash
 # Menu Manager for ZiVPN
-# AcilShop Premium Script (3 Columns Layout)
+# AcilShop Premium Script (Compact 3-Column Layout)
 
 CONFIG_FILE="/etc/zivpn/config.json"
 DOMAIN_FILE="/etc/zivpn/domain"
@@ -13,7 +13,6 @@ GREEN='\033[0;32m'
 CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
 WHITE='\033[1;37m'
-BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Load Domain
@@ -42,22 +41,21 @@ center_text() {
   fi
 }
 
+# Fungsi Garis Kotak
 box_line() { echo -e "┌$(printf '%*s' "$(( $1 - 2 ))" | tr ' ' '─')┐"; }
 box_sep()  { echo -e "├$(printf '%*s' "$(( $1 - 2 ))" | tr ' ' '─')┤"; }
 box_end()  { echo -e "└$(printf '%*s' "$(( $1 - 2 ))" | tr ' ' '─')┘"; }
 
+# Fungsi Baris Text dalam Kotak
 box_row() {
   local width="$1" text="$2"
   local max=$((width-4))
-  # Hapus kode warna untuk hitung panjang string asli
   local clean_text=$(echo -e "$text" | sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]//g")
   local len=${#clean_text}
   
   if (( len > max )); then 
-      # Kalau kepanjangan potong (logika sederhana)
       printf "│ %-${max}s │\n" "$clean_text"
   else
-      # Print dengan padding sisa
       local gap=$((max - len))
       printf "│ %s%*s │\n" "$text" "$gap" ""
   fi
@@ -65,7 +63,6 @@ box_row() {
 
 big_banner() {
   local width="$1"
-  # ASCII Art ZivCil
   echo -e "${CYAN}"
   center_text "███████╗██╗██╗   ██╗ ██████╗██╗██╗      " "$width"
   center_text "╚══███╔╝██║██║   ██║██╔════╝██║██║      " "$width"
@@ -80,7 +77,7 @@ big_banner() {
 show_header() {
   clear
   local W=$(term_cols)
-  (( W < 74 )) && W=74 # Minimal lebar agar 3 kolom muat
+  (( W < 74 )) && W=74
 
   # Info System
   ram_used=$(free -m | awk 'NR==2{printf "%.2fGB", $3/1024}')
@@ -94,15 +91,12 @@ show_header() {
   
   local BW=$((W-4))
   box_line "$BW"
-  # Baris 1: Status Title
   box_row "$BW" "$(center_text "SERVER STATUS INFORMATION" $((BW-4)))"
   box_sep "$BW"
-  # Baris 2: Info (Manual formatting for alignment)
-  # Kita pakai printf manual di dalam box
-  printf "│  %-20s : %-38s │\n" "Domain" "${GREEN}${DOMAIN}${NC}"
-  printf "│  %-20s : %-38s │\n" "IP Server" "${YELLOW}${IP_SERVER}${NC}"
-  printf "│  %-20s : %-38s │\n" "RAM Usage" "${CYAN}${ram_used} / ${ram_total}${NC}"
-  printf "│  %-20s : %-38s │\n" "Total User" "${WHITE}${TOTAL} Users${NC}"
+  printf "│  %-16s : %-42s │\n" "Domain" "${GREEN}${DOMAIN}${NC}"
+  printf "│  %-16s : %-42s │\n" "IP Server" "${YELLOW}${IP_SERVER}${NC}"
+  printf "│  %-16s : %-42s │\n" "RAM Usage" "${CYAN}${ram_used} / ${ram_total}${NC}"
+  printf "│  %-16s : %-42s │\n" "Total User" "${WHITE}${TOTAL} Users${NC}"
   box_end "$BW"
   echo
 }
@@ -118,7 +112,6 @@ add_user() {
   read -p "Masukkan Password Baru : " new_pass
   if [ -z "$new_pass" ]; then echo "Password tidak boleh kosong!"; sleep 1; return; fi
   
-  # Cek duplikat
   if jq -e ".auth.config[] | select(. == \"$new_pass\")" "$CONFIG_FILE" > /dev/null 2>&1; then
     echo -e "${RED}[ERROR] Password/User sudah ada!${NC}"
     sleep 2
@@ -127,18 +120,16 @@ add_user() {
 
   read -p "Masa Aktif (Hari)      : " masa_aktif
   if ! [[ "$masa_aktif" =~ ^[0-9]+$ ]]; then
-      masa_aktif=30 # Default jika input salah
+      masa_aktif=30 
   fi
 
-  # 1. Tambah ke Config JSON
+  # Simpan ke Config
   jq --arg pass "$new_pass" '.auth.config += [$pass]' "$CONFIG_FILE" > /tmp/config.tmp && mv /tmp/config.tmp "$CONFIG_FILE"
 
-  # 2. Tambah ke Database User (Format: pass expired_date)
-  # Tanggal Expired (YYYY-MM-DD)
+  # Simpan ke Database (User)
   exp_date=$(date -d "+$masa_aktif days" +"%Y-%m-%d")
   echo "$new_pass $exp_date" >> "$USER_DB"
 
-  # 3. Restart & Info
   systemctl restart zivpn
   
   clear
@@ -160,18 +151,14 @@ add_user() {
 trial_user() {
   echo -e "\n${YELLOW}=== BUAT USER TRIAL ===${NC}"
   
-  # Generate Random Pass
   trial_pass="trial$(shuf -i 100-9999 -n 1)"
   
-  # 1. Tambah ke Config JSON
   jq --arg pass "$trial_pass" '.auth.config += [$pass]' "$CONFIG_FILE" > /tmp/config.tmp && mv /tmp/config.tmp "$CONFIG_FILE"
 
-  # 2. Tambah ke Database Trial (Format: pass timestamp)
-  # Expired 60 Menit dari sekarang
+  # Simpan ke Database (Trial) - Expired 60 Menit
   exp_time=$(date -d "+60 minutes" +%s)
   echo "$trial_pass $exp_time" >> "$TRIAL_DB"
 
-  # 3. Restart
   systemctl restart zivpn
 
   clear
@@ -193,10 +180,9 @@ del_user() {
   read -p "Masukkan Password yg dihapus: " del_pass
 
   if jq -e ".auth.config[] | select(. == \"$del_pass\")" "$CONFIG_FILE" > /dev/null 2>&1; then
-    # Hapus dari JSON
     jq --arg pass "$del_pass" '.auth.config -= [$pass]' "$CONFIG_FILE" > /tmp/config.tmp && mv /tmp/config.tmp "$CONFIG_FILE"
     
-    # Hapus dari Database (User & Trial)
+    # Bersihkan DB
     sed -i "/^$del_pass /d" "$USER_DB"
     sed -i "/^$del_pass /d" "$TRIAL_DB"
 
@@ -230,47 +216,41 @@ clear_cache() {
 }
 
 # ==========================================
-#  LAYOUT 3 KOLOM DINAMIS
+#  LAYOUT 3 KOLOM RAPAT (COMPACT)
 # ==========================================
-draw_menu_3col() {
+draw_menu_compact() {
   local W=$(term_cols)
   (( W < 74 )) && W=74
 
   local BW=$((W-4))
-  local inner=$((BW-2)) # Lebar area dalam box
-  local col_w=$((inner/3)) # Lebar per kolom
+  local inner=$((BW-2))
+  local col_w=$((inner/3))
 
   box_line "$BW"
   box_row  "$BW" "$(center_text "MAIN MENU NAVIGATION" $((BW-4)))"
   box_sep  "$BW"
 
-  # Format Printf untuk 3 kolom
-  # Kita kurangi sedikit col_w untuk margin
+  # Format Printf (Lebar kolom dinamis)
   local txt_w=$((col_w - 2)) 
   local fmt="│ %-${txt_w}s %-${txt_w}s %-${txt_w}s │\n"
 
-  # --- BARIS 1 ---
-  # Col 1: Add User, Col 2: Trial, Col 3: Del User
+  # Baris 1: 1, 2, 3
   printf "$fmt" \
     "${GREEN}[1]${NC} Create User" \
     "${GREEN}[2]${NC} Create Trial" \
     "${GREEN}[3]${NC} Delete User"
 
-  # --- BARIS 2 ---
-  # Col 1: List User, Col 2: Clear RAM, Col 3: Restart
+  # Baris 2: 4, 5, 6
   printf "$fmt" \
     "${GREEN}[4]${NC} List User" \
     "${GREEN}[5]${NC} Clear Cache" \
     "${GREEN}[6]${NC} Restart VPN"
 
-  box_sep "$BW"
-
-  # --- BARIS 3 (EXIT & UNINSTALL) ---
-  # Kita buat rata tengah untuk baris terakhir
-  local half=$((inner/2))
-  printf "│ %-${half}s %-${half}s │\n" \
-    "     ${RED}[7] Uninstall Script${NC}" \
-    "     ${YELLOW}[x] Exit Menu${NC}"
+  # Baris 3: 7, x (Rapat, tanpa garis pemisah tambahan)
+  printf "$fmt" \
+    "${RED}[7]${NC} Uninstall" \
+    "${YELLOW}[x]${NC} Exit Menu" \
+    "" 
 
   box_end "$BW"
   echo
@@ -281,7 +261,7 @@ draw_menu_3col() {
 # ==========================================
 while true; do
   show_header
-  draw_menu_3col
+  draw_menu_compact
   read -p " Select Option [1-x] : " opt
   case $opt in
     1) add_user ;;
@@ -298,8 +278,8 @@ while true; do
        ;;
     7)
       echo "Uninstalling..."
-      # Ganti link ini dengan link uninstall Anda jika ada
-      echo "Fitur uninstall belum dikonfigurasi."
+      # Link uninstall placeholder
+      echo "Silakan update link uninstall di script."
       sleep 2 ;;
     x|X) 
       clear
