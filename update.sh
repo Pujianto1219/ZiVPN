@@ -1,34 +1,135 @@
 #!/bin/bash
 # ==========================================
-#  SCRIPT UPDATER ZIVPN (FIXED PATH)
-#  Repo: https://github.com/Pujianto1219/ZiVPN
+#  ZiVPN SAFE UPDATER
+#  Overwrite Mode (Tidak menghapus jika gagal download)
 # ==========================================
 
-# --- WARNA TEXT ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+# --- CEK KONEKSI (Safety First) ---
+wget -q --spider https://google.com
+if [ $? -ne 0 ]; then
+    echo -e "\033[0;31m[ERROR] Tidak ada koneksi internet. Update dibatalkan.\033[0m"
+    exit 1
+fi
 
-# --- KONFIGURASI URL ---
-# URL Utama
-REPO_ROOT="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main"
-# URL Folder Utils (Tempat script XP berada)
-REPO_UTILS="${REPO_ROOT}/Utils"
+dateFromServer=$(curl -v --insecure --silent https://google.com/ 2>&1 | grep Date | sed -e 's/< Date: //')
+biji=`date +"%Y-%m-%d" -d "$dateFromServer"`
+
+###########- COLOR CODE -##############
+colornow=$(cat /etc/rmbl/theme/color.conf 2>/dev/null)
+NC="\e[0m"
+RED="\033[0;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[0;33m"
+CYAN="\033[0;36m"
+WH='\033[1;37m'
+# Fallback colors if theme config missing
+COLOR1="${CYAN}"
+COLBG1="${NC}"
+###########- END COLOR CODE -##########
 
 clear
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${YELLOW}           UPDATE SYSTEM ZIVPN ACILSHOP         ${NC}"
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "Memulai proses update..."
-sleep 1
+echo -e "${CYAN}┌─────────────────────────────────────────────────┐${NC}"
+echo -e "${CYAN}│${NC} ${YELLOW}           ⇱ UPDATE SCRIPT ZIVPN ⇲             ${NC} ${CYAN}│${NC}"
+echo -e "${CYAN}│${NC} ${YELLOW}          ⇱  METODE: OVERWRITE  ⇲             ${NC} ${CYAN}│${NC}"
+echo -e "${CYAN}└─────────────────────────────────────────────────┘${NC}"
 
-# FUNGSI DOWNLOAD AMAN (Cek dulu sebelum timpa)
-download_safe() {
+# --- FUNGSI UPDATE FILE (AMAN) ---
+update_file() {
     local url="$1"
-    local dest="$2"
-    local temp="/tmp/zivpn_temp_file"
+    local target="$2"
+    local temp_file="/tmp/zivpn_temp"
+
+    # 1. Download ke file sementara dulu
+    wget -q -O "$temp_file" "$url"
+
+    # 2. Cek apakah download sukses & file ada isinya
+    if [ -s "$temp_file" ]; then
+        # Jika sukses, timpa file lama dengan yang baru
+        mv "$temp_file" "$target"
+        chmod +x "$target"
+        # Fix format Windows (\r) jika ada
+        sed -i 's/\r$//' "$target"
+    else
+        # Jika gagal, hapus file sementara & biarkan file lama tetap ada
+        rm -f "$temp_file"
+    fi
+}
+
+# --- FUNGSI UTAMA (PROSES UPDATE) ---
+res1() {
+    # URL REPO ANDA
+    REPO="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main"
+    REPO_UTILS="${REPO}/Utils"
+    
+    cd /usr/bin
+
+    # === MULAI UPDATE FILE ===
+    # Script tidak menghapus file lama, tapi langsung menimpa (overwrite)
+    # Jika link mati/gagal, file lama Anda TETAP AMAN.
+
+    # 1. Menu Utama
+    update_file "${REPO}/menu.sh" "/usr/bin/menu"
+
+    # 2. Script XP (Dari folder Utils di Github)
+    update_file "${REPO_UTILS}/xp-trial.sh" "/usr/bin/xp-trial"
+    update_file "${REPO_UTILS}/xp-user.sh" "/usr/bin/xp-user"
+
+    # 3. Script Pendukung (Update & Uninstall)
+    update_file "${REPO}/update.sh" "/usr/bin/update"
+    update_file "${REPO}/uninstall.sh" "/usr/bin/uninstall"
+
+    # 4. Refresh Cronjob (Agar perubahan jadwal XP diterapkan)
+    # Hapus cron lama (aman dilakukan karena akan ditulis ulang)
+    rm -f /etc/cron.d/xp_trial /etc/cron.d/xp_user
+    
+    # Tulis ulang cronjob
+    echo "*/10 * * * * root /usr/bin/xp-trial" > /etc/cron.d/xp_trial
+    echo "0 0 * * * root /usr/bin/xp-user" > /etc/cron.d/xp_user
+    echo "0 5 * * * root reboot" > /etc/cron.d/auto_reboot
+    
+    service cron restart > /dev/null 2>&1
+}
+
+# --- LOADING BAR ANIMATION ---
+fun_bar() {
+    CMD[0]="$1"
+    CMD[1]="$2"
+    (
+        [[ -e $HOME/fim ]] && rm $HOME/fim
+        ${CMD[0]} -y >/dev/null 2>&1
+        ${CMD[1]} -y >/dev/null 2>&1
+        touch $HOME/fim
+    ) >/dev/null 2>&1 &
+    
+    tput civis
+    echo -ne "  \033[0;33mChecking & Updating \033[1;37m- \033[0;33m["
+    while true; do
+        for ((i = 0; i < 18; i++)); do
+            echo -ne "\033[0;32m#"
+            sleep 0.1s
+        done
+        [[ -e $HOME/fim ]] && rm $HOME/fim && break
+        echo -e "\033[0;33m]"
+        sleep 1s
+        tput cuu1
+        tput dl1
+        echo -ne "  \033[0;33mChecking & Updating \033[1;37m- \033[0;33m["
+    done
+    echo -e "\033[0;33m]\033[1;37m -\033[1;32m COMPLETED !\033[1;37m"
+    tput cnorm
+}
+
+# --- EKSEKUSI ---
+echo -e ""
+echo -e "  \033[1;91m Syncing with GitHub...\033[1;37m"
+fun_bar 'res1'
+
+echo -e ""
+echo -e "${GREEN} Update Selesai.${NC}"
+echo -e "${YELLOW} File lama yang gagal didownload tidak berubah.${NC}"
+echo -e ""
+read -n 1 -s -r -p "Tekan sembarang tombol untuk kembali ke Menu..."
+menu    local temp="/tmp/zivpn_temp_file"
 
     echo -n "Update $(basename $dest)... "
     
