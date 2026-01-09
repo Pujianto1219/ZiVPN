@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================
-#  SCRIPT UPDATER ZIVPN (ALL-IN-ONE)
+#  SCRIPT UPDATER ZIVPN (FIXED PATH)
 #  Repo: https://github.com/Pujianto1219/ZiVPN
 # ==========================================
 
@@ -11,109 +11,85 @@ YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# --- REPO SOURCE ---
-# Pastikan file-file terbaru (menu.sh, xp-trial.sh, xp-user.sh) SUDAH diupload ke sini
-REPO="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main"
+# --- KONFIGURASI URL ---
+# URL Utama
+REPO_ROOT="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main"
+# URL Folder Utils (Tempat script XP berada)
+REPO_UTILS="${REPO_ROOT}/Utils"
 
 clear
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${YELLOW}           UPDATE SYSTEM ZIVPN ACILSHOP         ${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "Memulai proses update..."
-sleep 2
+sleep 1
 
-# 1. UPDATE DEPENDENCIES & TIMEZONE
-echo -e "${GREEN}[1/5] Sinkronisasi System & Waktu...${NC}"
-apt-get update -y > /dev/null 2>&1
-apt-get install curl wget jq -y > /dev/null 2>&1
+# FUNGSI DOWNLOAD AMAN (Cek dulu sebelum timpa)
+download_safe() {
+    local url="$1"
+    local dest="$2"
+    local temp="/tmp/zivpn_temp_file"
+
+    echo -n "Update $(basename $dest)... "
+    
+    # Download ke file temp dulu
+    wget -q "$url" -O "$temp"
+    
+    # Cek apakah download sukses & file ada isinya
+    if [ -s "$temp" ]; then
+        mv "$temp" "$dest"
+        chmod +x "$dest"
+        echo -e "${GREEN}[OK]${NC}"
+    else
+        echo -e "${RED}[GAGAL]${NC}"
+        echo -e "${RED}    -> Sumber tidak ditemukan: $url${NC}" 
+        rm -f "$temp"
+    fi
+}
+
+# 1. FIX TIMEZONE
 ln -fs /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
 
-# 2. DOWNLOAD SCRIPT TERBARU (MENU & XP)
-echo -e "${GREEN}[2/5] Mengunduh Script Menu & XP Terbaru...${NC}"
+# 2. DOWNLOAD SCRIPT
+echo -e "${GREEN}[1/4] Mengunduh Script Terbaru...${NC}"
 
-# Hapus file lama (bersih-bersih)
-rm -f /usr/bin/menu
-rm -f /usr/bin/xp
-rm -f /usr/bin/xp-trial
-rm -f /usr/bin/xp-user
+# Menu ada di Root (Halaman Depan)
+download_safe "${REPO_ROOT}/menu.sh" "/usr/bin/menu"
 
-# Download file baru dari Repo
-wget -q "${REPO}/menu.sh" -O /usr/bin/menu
-wget -q "${REPO}/xp-trial.sh" -O /usr/bin/xp-trial
-wget -q "${REPO}/xp-user.sh" -O /usr/bin/xp-user
-
-# Berikan izin eksekusi (chmod)
-chmod +x /usr/bin/menu
-chmod +x /usr/bin/xp-trial
-chmod +x /usr/bin/xp-user
+# Script XP ada di folder Utils
+# Pastikan nama file di GitHub Anda: xp-trial.sh dan xp-user.sh
+download_safe "${REPO_UTILS}/xp-trial.sh" "/usr/bin/xp-trial"
+download_safe "${REPO_UTILS}/xp-user.sh" "/usr/bin/xp-user"
 
 # 3. FIX DATABASE & CRONJOB
-echo -e "${GREEN}[3/5] Memperbarui Database & Penjadwal (Cron)...${NC}"
+echo -e "${GREEN}[2/4] Memperbarui Database & Cron...${NC}"
 
-# Pastikan folder config ada
 mkdir -p /etc/zivpn
+[ ! -f "/etc/zivpn/user.db" ] && touch /etc/zivpn/user.db
+[ ! -f "/etc/zivpn/trial.db" ] && touch /etc/zivpn/trial.db
 
-# Buat database kosong jika belum ada (Safe Mode)
-# Agar menu baru tidak error saat baca database
-if [ ! -f "/etc/zivpn/user.db" ]; then
-    touch /etc/zivpn/user.db
-fi
-if [ ! -f "/etc/zivpn/trial.db" ]; then
-    touch /etc/zivpn/trial.db
-fi
-
-# Reset Cronjob (Hapus yang lama, pasang yang baru)
-rm -f /etc/cron.d/xp_trial
-rm -f /etc/cron.d/xp_user
-rm -f /etc/cron.d/xp
-rm -f /etc/cron.d/auto_reboot
-
-# Tulis Cronjob Baru (Split Trial & User)
+# Reset Cronjob
+rm -f /etc/cron.d/xp_trial /etc/cron.d/xp_user /etc/cron.d/auto_reboot
 echo "*/10 * * * * root /usr/bin/xp-trial" > /etc/cron.d/xp_trial
 echo "0 0 * * * root /usr/bin/xp-user" > /etc/cron.d/xp_user
 echo "0 5 * * * root reboot" > /etc/cron.d/auto_reboot
-
-# Restart service cron
 service cron restart > /dev/null 2>&1
 
-# 4. OPTIMASI KERNEL (CPU & BBR)
-echo -e "${GREEN}[4/5] Mengoptimalkan Kinerja Server...${NC}"
-
-# Enable TCP BBR (Jika belum aktif)
+# 4. OPTIMASI KERNEL
+echo -e "${GREEN}[3/4] Optimasi Kernel...${NC}"
 if ! grep -q "bbr" /etc/sysctl.conf; then
     echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
     echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    sysctl -p > /dev/null 2>&1
 fi
 
-# Tuning Network Buffer (Agar tidak lag)
-if ! grep -q "net.core.rmem_max" /etc/sysctl.conf; then
-cat <<EOF >> /etc/sysctl.conf
-fs.file-max = 1000000
-net.core.rmem_max = 67108864
-net.core.wmem_max = 67108864
-net.core.netdev_max_backlog = 250000
-net.core.somaxconn = 4096
-net.ipv4.tcp_tw_reuse = 1
-EOF
-fi
-
-# Apply perubahan Kernel
-sysctl -p > /dev/null 2>&1
-
-# 5. FINALISASI
-echo -e "${GREEN}[5/5] Restarting Services...${NC}"
+# 5. RESTART
+echo -e "${GREEN}[4/4] Restarting Services...${NC}"
 systemctl restart zivpn
 echo 3 > /proc/sys/vm/drop_caches
 
 clear
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}           UPDATE SELESAI! (SUCCESS)            ${NC}"
+echo -e "${GREEN}           UPDATE SELESAI!            ${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "Script Anda telah diperbarui ke versi terbaru."
-echo -e ""
-echo -e "Fitur Baru:"
-echo -e "1. Tampilan Menu 3 Kolom (Compact)"
-echo -e "2. Fix Auto Delete User & Trial"
-echo -e "3. Optimasi CPU & Bandwidth (BBR)"
-echo -e ""
-echo -e "Silakan ketik ${YELLOW}menu${NC} untuk mencoba."
+echo -e "Silakan ketik ${YELLOW}menu${NC}"
