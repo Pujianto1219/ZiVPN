@@ -1,318 +1,260 @@
 import telebot
+from telebot import types
 import subprocess
+import os
 import json
-import random
-import string
+import datetime
 import time
-from datetime import datetime
-import html
+import random
 
-# --- SETUP CONFIG ---
-BOT_TOKEN = "DATA_TOKEN"
-ADMIN_ID = DATA_ADMIN  # pastikan int atau string angka
-
+# ==========================================
+# KONFIGURASI FILE & DATABASE
+# ==========================================
 CONFIG_FILE = "/etc/zivpn/config.json"
-VPN_SERVICE = "zivpn"
-VPN_PORT = "5667"
+USER_DB = "/etc/zivpn/user.db"
+TRIAL_DB = "/etc/zivpn/trial.db"
+BOT_CONFIG = "/etc/zivpn/bot.json"
 
-bot = telebot.TeleBot(BOT_TOKEN)
+# Load Config Bot (Token & Admin ID)
+if not os.path.exists(BOT_CONFIG):
+    print("Error: File bot.json tidak ditemukan! Jalankan menu -> Setup Bot dulu.")
+    exit()
 
+with open(BOT_CONFIG, 'r') as f:
+    config = json.load(f)
 
-# ---------- UTIL ----------
-def h(text) -> str:
-    """Escape HTML agar aman di parse_mode=HTML."""
-    return html.escape(str(text), quote=False)
+TOKEN = config['bot_token']
+ADMIN_ID = str(config['admin_id'])
 
+bot = telebot.TeleBot(TOKEN)
 
-def banner_acilshop() -> str:
-    # HTML-safe, tetap keren
-    return (
-        "╔══════════════════════════════╗\n"
-        "║      🛒 <b>ACILSHOP</b> 🛒        ║\n"
-        "║  <i>Fast • Stable • Trusted</i>   ║\n"
-        "║  Support: @acilshop           ║\n"
-        "╚══════════════════════════════╝\n\n"
-    )
-
-
-def get_ip() -> str:
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
+def get_system_info():
+    # Ambil RAM
+    ram_cmd = "free -m | awk 'NR==2{printf \"%.2f%%\", $3*100/$2}'"
+    ram = subprocess.check_output(ram_cmd, shell=True).decode().strip()
+    
+    # Ambil CPU Load
+    cpu_cmd = "top -bn1 | grep load | awk '{printf \"%.2f\", $(NF-2)}'"
     try:
-        return subprocess.check_output("curl -s ifconfig.me", shell=True).decode().strip()
+        cpu = subprocess.check_output(cpu_cmd, shell=True).decode().strip()
     except:
-        return "127.0.0.1"
+        cpu = "0.0"
 
-
-def get_service_status() -> str:
+    # Ambil IP
+    ip_cmd = "curl -s ifconfig.me"
     try:
-        res = subprocess.check_output(f"systemctl is-active {VPN_SERVICE}", shell=True).decode().strip()
-        return res.upper()
+        ip = subprocess.check_output(ip_cmd, shell=True).decode().strip()
     except:
-        return "UNKNOWN"
+        ip = "Unknown"
 
+    return ip, ram, cpu
 
 def restart_vpn():
-    subprocess.call(["systemctl", "restart", VPN_SERVICE])
+    os.system("systemctl restart zivpn")
 
-
-def read_config_users():
-    with open(CONFIG_FILE, "r") as f:
-        data = json.load(f)
-
-    auth = data.get("auth", {})
-    cfg = auth.get("config", [])
-    if not isinstance(cfg, list):
-        cfg = []
-    return data, cfg
-
-
-def write_config(data):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
-
-def panel_info_text() -> str:
-    try:
-        _, users = read_config_users()
-        total_users = len(users)
-    except:
-        total_users = 0
-
-    ip = get_ip()
-    status = get_service_status()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    info_user = (
-        "👤 <b>INFO USER</b>\n"
-        f"• Total User: <code>{h(total_users)}</code>\n"
-        f"• Server IP : <code>{h(ip)}</code>\n"
-        f"• Port      : <code>{h(VPN_PORT)}</code>\n"
-        f"• Service   : <code>{h(status)}</code>\n"
-        f"• Updated   : <code>{h(now)}</code>\n"
-    )
-
-    about_bot = (
-        "\n🤖 <b>TENTANG BOT</b>\n"
-        "• Nama   : <code>ZiVPN Panel Bot</code>\n"
-        "• Versi  : <code>1.0</code>\n"
-        "• Fitur  : <code>Trial / Add / List / Status</code>\n"
-        "• Owner  : <code>AcilShop</code>\n"
-        "• Support: <code>@acilshop</code>\n"
-    )
-
-    return banner_acilshop() + info_user + about_bot
-
-
-# ---------- INLINE BUTTON MENU ----------
-def main_menu_keyboard():
-    kb = telebot.types.InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        telebot.types.InlineKeyboardButton("🎁 Trial", callback_data="m_trial"),
-        telebot.types.InlineKeyboardButton("➕ Add User", callback_data="m_add"),
-        telebot.types.InlineKeyboardButton("📋 List User", callback_data="m_list"),
-        telebot.types.InlineKeyboardButton("📡 Status", callback_data="m_status"),
-    )
-    kb.add(
-        telebot.types.InlineKeyboardButton("ℹ️ About / Info", callback_data="m_about"),
-        telebot.types.InlineKeyboardButton("🔄 Refresh Panel", callback_data="m_refresh"),
-    )
-    return kb
-
-
-def is_admin(obj) -> bool:
-    chat_id = None
-    try:
-        chat_id = obj.chat.id  # Message
-    except:
-        try:
-            chat_id = obj.message.chat.id  # CallbackQuery
-        except:
-            chat_id = None
-    return str(chat_id) == str(ADMIN_ID)
-
-
-def deny(chat_id):
-    bot.send_message(chat_id, "⛔ <b>Akses Ditolak!</b>", parse_mode="HTML")
-
-
-# ---------- COMMANDS ----------
-@bot.message_handler(commands=["start", "menu"])
-def cmd_start(message):
-    if not is_admin(message):
-        return bot.reply_to(
-            message,
-            f"⛔ <b>Akses Ditolak!</b>\nID Anda: <code>{h(message.chat.id)}</code>",
-            parse_mode="HTML"
-        )
-
-    bot.send_message(
-        message.chat.id,
-        panel_info_text() + "\nPilih menu di bawah ini:",
-        parse_mode="HTML",
-        reply_markup=main_menu_keyboard()
-    )
-
-
-# ---------- CALLBACK HANDLER ----------
-@bot.callback_query_handler(func=lambda c: True)
-def on_callback(call):
-    if not is_admin(call):
-        try:
-            bot.answer_callback_query(call.id, "Akses ditolak!", show_alert=True)
-        except:
-            pass
-        return deny(call.message.chat.id)
-
-    data = call.data
-    chat_id = call.message.chat.id
-
-    try:
-        bot.answer_callback_query(call.id)
-    except:
-        pass
-
-    if data == "m_refresh":
-        try:
-            bot.edit_message_text(
-                panel_info_text() + "\nPilih menu di bawah ini:",
-                chat_id=chat_id,
-                message_id=call.message.message_id,
-                parse_mode="HTML",
-                reply_markup=main_menu_keyboard()
-            )
-        except:
-            bot.send_message(
-                chat_id,
-                panel_info_text() + "\nPilih menu di bawah ini:",
-                parse_mode="HTML",
-                reply_markup=main_menu_keyboard()
-            )
-
-    elif data == "m_about":
-        bot.send_message(chat_id, panel_info_text(), parse_mode="HTML", reply_markup=main_menu_keyboard())
-
-    elif data == "m_status":
-        status = get_service_status()
-        ip = get_ip()
-        txt = (
-            banner_acilshop() +
-            "📡 <b>STATUS SERVER</b>\n"
-            f"• IP      : <code>{h(ip)}</code>\n"
-            f"• Port    : <code>{h(VPN_PORT)}</code>\n"
-            f"• Service : <code>{h(status)}</code>\n\n"
-            "Klik <b>Refresh Panel</b> untuk update info."
-        )
-        bot.send_message(chat_id, txt, parse_mode="HTML", reply_markup=main_menu_keyboard())
-
-    elif data == "m_list":
-        try:
-            _, users = read_config_users()
-            if not users:
-                txt = banner_acilshop() + "📭 <b>Belum ada user.</b>"
-            else:
-                list_txt = "\n".join([f"• <code>{h(u)}</code>" for u in users])
-                txt = banner_acilshop() + "📋 <b>LIST USER</b>\n\n" + list_txt
-        except Exception as e:
-            txt = banner_acilshop() + f"❌ <b>Gagal membaca config:</b> <code>{h(e)}</code>"
-
-        bot.send_message(chat_id, txt, parse_mode="HTML", reply_markup=main_menu_keyboard())
-
-    elif data == "m_trial":
-        rand_suffix = "".join(random.choices(string.digits, k=4))
-        user = f"trial{rand_suffix}"
-
-        try:
-            data_json, users = read_config_users()
-
-            if user in users:
-                user = f"{user}x"
-
-            users.append(user)
-            if "auth" not in data_json:
-                data_json["auth"] = {}
-            data_json["auth"]["config"] = users
-
-            write_config(data_json)
-            restart_vpn()
-
-            ip = get_ip()
-            txt = (
-                banner_acilshop() +
-                "✅ <b>TRIAL SUKSES</b> ✅\n\n"
-                f"User : <code>{h(user)}</code>\n"
-                f"Pass : <code>{h(user)}</code>\n"
-                f"IP   : <code>{h(ip)}</code>\n"
-                f"Port : <code>{h(VPN_PORT)}</code>\n\n"
-                "Gunakan tombol menu untuk aksi lainnya."
-            )
-            bot.send_message(chat_id, txt, parse_mode="HTML", reply_markup=main_menu_keyboard())
-
-        except Exception as e:
-            bot.send_message(
-                chat_id,
-                banner_acilshop() + f"❌ <b>Error:</b> <code>{h(e)}</code>",
-                parse_mode="HTML",
-                reply_markup=main_menu_keyboard()
-            )
-
-    elif data == "m_add":
-        msg = bot.send_message(
-            chat_id,
-            banner_acilshop() + "✏️ <b>Ketik Username/Password baru:</b>",
-            parse_mode="HTML"
-        )
-        bot.register_next_step_handler(msg, process_add_user_step)
-
-    else:
-        bot.send_message(chat_id, "Perintah tidak dikenal.", reply_markup=main_menu_keyboard())
-
-
-def process_add_user_step(message):
-    if not is_admin(message):
+# ==========================================
+# TAMPILAN MENU (BANNER & BUTTONS)
+# ==========================================
+@bot.message_handler(commands=['start', 'menu'])
+def send_welcome(message):
+    # Security Check: Hanya Admin yang bisa akses
+    if str(message.from_user.id) != ADMIN_ID:
+        bot.reply_to(message, "⛔ <b>ACCESS DENIED</b>\nAnda bukan Admin bot ini!", parse_mode="HTML")
         return
 
-    new_pass = (message.text or "").strip()
-    if not new_pass:
-        return bot.reply_to(message, "❌ <b>Input kosong.</b>", parse_mode="HTML")
+    ip, ram, cpu = get_system_info()
+    
+    # Banner Style Console (Monospace)
+    banner_text = f"""
+<b>≡ ZIVPN PREMIUM CONTROL ≡</b>
+<code>
+┌───────────────────────────┐
+│ SERVER STATUS INFORMATION │
+├───────────────────────────┤
+│ IP   : {ip}
+│ RAM  : {ram}
+│ CPU  : {cpu}
+│ DATE : {datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}
+└───────────────────────────┘
+</code>
+<b>Select Menu Option:</b>
+"""
+    
+    # Membuat Keyboard 2 Kolom (Grid)
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    btn1 = types.InlineKeyboardButton("👤 Create User", callback_data="add_user")
+    btn2 = types.InlineKeyboardButton("⏳ Trial Account", callback_data="trial_user")
+    btn3 = types.InlineKeyboardButton("🗑️ Delete User", callback_data="del_user")
+    btn4 = types.InlineKeyboardButton("📄 List Users", callback_data="list_user")
+    btn5 = types.InlineKeyboardButton("🔄 Restart VPN", callback_data="restart")
+    btn6 = types.InlineKeyboardButton("⚙️ System Info", callback_data="sys_info")
+    
+    markup.add(btn1, btn2)
+    markup.add(btn3, btn4)
+    markup.add(btn5, btn6)
 
-    try:
-        data_json, users = read_config_users()
+    bot.send_message(message.chat.id, banner_text, parse_mode="HTML", reply_markup=markup)
 
-        if new_pass in users:
-            return bot.send_message(
-                message.chat.id,
-                banner_acilshop() + "❌ <b>User sudah ada!</b>",
-                parse_mode="HTML",
-                reply_markup=main_menu_keyboard()
-            )
+# ==========================================
+# CALLBACK HANDLER (LOGIKA TOMBOL)
+# ==========================================
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    if str(call.from_user.id) != ADMIN_ID:
+        return
 
-        users.append(new_pass)
-        if "auth" not in data_json:
-            data_json["auth"] = {}
-        data_json["auth"]["config"] = users
+    if call.data == "sys_info":
+        ip, ram, cpu = get_system_info()
+        info_text = f"""
+<b>⚙️ SYSTEM DETAILS</b>
+<code>
+OS     : Ubuntu/Debian
+IP     : {ip}
+RAM    : {ram}
+CPU    : {cpu}
+UPTIME : {subprocess.check_output("uptime -p", shell=True).decode().strip()}
+</code>
+"""
+        bot.send_message(call.message.chat.id, info_text, parse_mode="HTML")
 
-        write_config(data_json)
+    elif call.data == "restart":
+        msg = bot.send_message(call.message.chat.id, "🔄 <i>Restarting ZIVPN Service...</i>", parse_mode="HTML")
         restart_vpn()
+        time.sleep(2)
+        bot.edit_message_text("✅ <b>Service Restarted Successfully!</b>", call.message.chat.id, msg.message_id, parse_mode="HTML")
 
-        bot.send_message(
-            message.chat.id,
-            banner_acilshop() + f"✅ <b>User</b> <code>{h(new_pass)}</code> <b>berhasil ditambahkan.</b>",
-            parse_mode="HTML",
-            reply_markup=main_menu_keyboard()
-        )
+    elif call.data == "list_user":
+        try:
+            # Baca Config JSON
+            with open(CONFIG_FILE, 'r') as f:
+                data = json.load(f)
+            
+            users = data['auth']['config']
+            if not users:
+                bot.send_message(call.message.chat.id, "📂 <b>Database Kosong.</b> Belum ada user.", parse_mode="HTML")
+            else:
+                # Format List Rapi
+                response = "<b>📋 LIST USER ZIVPN:</b>\n<code>"
+                for i, u in enumerate(users, 1):
+                    response += f"{i}. {u}\n"
+                response += "</code>"
+                bot.send_message(call.message.chat.id, response, parse_mode="HTML")
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"Error: {e}")
 
-    except Exception as e:
-        bot.send_message(
-            message.chat.id,
-            banner_acilshop() + f"❌ <b>Error:</b> <code>{h(e)}</code>",
-            parse_mode="HTML",
-            reply_markup=main_menu_keyboard()
-        )
+    elif call.data == "trial_user":
+        # Generate Random Trial
+        rand_id = random.randint(1000, 9999)
+        username = f"trial{rand_id}"
+        
+        # 1. Update JSON
+        os.system(f"jq --arg u '{username}' '.auth.config += [$u]' {CONFIG_FILE} > /tmp/conf && mv /tmp/conf {CONFIG_FILE}")
+        
+        # 2. Update Database (60 Menit)
+        exp_timestamp = int(time.time()) + 3600 # 60 menit
+        os.system(f"echo '{username} {exp_timestamp}' >> {TRIAL_DB}")
+        
+        restart_vpn()
+        
+        msg_trial = f"""
+<b>✅ TRIAL CREATED!</b>
+<code>
+Username : {username}
+Expired  : 60 Minutes
+Limit    : 1 Device
+</code>
+"""
+        bot.send_message(call.message.chat.id, msg_trial, parse_mode="HTML")
 
+    elif call.data == "add_user":
+        msg = bot.send_message(call.message.chat.id, "📝 <b>Masukkan Username Baru:</b>", parse_mode="HTML")
+        bot.register_next_step_handler(msg, process_add_user_step1)
 
-print("🤖 ZiVPN Bot Berjalan...")
+    elif call.data == "del_user":
+        msg = bot.send_message(call.message.chat.id, "🗑️ <b>Masukkan Username yang akan dihapus:</b>", parse_mode="HTML")
+        bot.register_next_step_handler(msg, process_del_user)
+
+# ==========================================
+# PROSES INPUT (ADD USER)
+# ==========================================
+def process_add_user_step1(message):
+    username = message.text.strip()
+    
+    # Cek apakah user ada (grep simple)
+    if os.system(f"grep -q '{username}' {CONFIG_FILE}") == 0:
+        bot.reply_to(message, "❌ <b>Error:</b> Username sudah ada!", parse_mode="HTML")
+        return
+
+    msg = bot.reply_to(message, f"Username: <b>{username}</b>\n📅 <b>Masukkan Durasi (Hari):</b>\n(Contoh: 30)", parse_mode="HTML")
+    bot.register_next_step_handler(msg, process_add_user_step2, username)
+
+def process_add_user_step2(message, username):
+    try:
+        days = int(message.text.strip())
+    except ValueError:
+        days = 30 # Default
+    
+    # 1. Update JSON
+    os.system(f"jq --arg u '{username}' '.auth.config += [$u]' {CONFIG_FILE} > /tmp/conf && mv /tmp/conf {CONFIG_FILE}")
+    
+    # 2. Hitung Expired & Update DB
+    # Format DB User: username YYYY-MM-DD
+    expiry_date = (datetime.datetime.now() + datetime.timedelta(days=days)).strftime('%Y-%m-%d')
+    os.system(f"echo '{username} {expiry_date}' >> {USER_DB}")
+    
+    restart_vpn()
+    
+    # Tampilkan Detail
+    # Ambil IP/Domain untuk info
+    try:
+        domain = subprocess.check_output(f"cat /etc/zivpn/domain", shell=True).decode().strip()
+    except:
+        domain = "IP-VPS-ANDA"
+
+    result_text = f"""
+<b>✅ USER CREATED SUCCESSFULLY!</b>
+<code>
+Username : {username}
+Expired  : {expiry_date} ({days} Days)
+Host/IP  : {domain}
+Port UDP : 5667
+</code>
+"""
+    bot.send_message(message.chat.id, result_text, parse_mode="HTML")
+
+# ==========================================
+# PROSES INPUT (DELETE USER)
+# ==========================================
+def process_del_user(message):
+    username = message.text.strip()
+    
+    # Cek Keberadaan User
+    if os.system(f"grep -q '{username}' {CONFIG_FILE}") != 0:
+        bot.reply_to(message, "❌ <b>Error:</b> Username tidak ditemukan!", parse_mode="HTML")
+        return
+
+    # Hapus dari JSON
+    os.system(f"jq --arg u '{username}' '.auth.config -= [$u]' {CONFIG_FILE} > /tmp/conf && mv /tmp/conf {CONFIG_FILE}")
+    
+    # Hapus dari DB User & Trial
+    os.system(f"sed -i '/^{username} /d' {USER_DB}")
+    os.system(f"sed -i '/^{username} /d' {TRIAL_DB}")
+    
+    restart_vpn()
+    
+    bot.reply_to(message, f"🗑️ User <b>{username}</b> berhasil dihapus!", parse_mode="HTML")
+
+# ==========================================
+# POLLING (LOOPING BOT)
+# ==========================================
+print("Bot ZIVPN Berjalan...")
 while True:
     try:
         bot.polling(none_stop=True)
     except Exception as e:
-        print(f"Error polling: {e}")
+        print(f"Connection Error: {e}")
         time.sleep(5)
