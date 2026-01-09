@@ -14,7 +14,7 @@ function check_license() {
     # Format di server/repo HARUS: IP|TANGGAL_EXPIRED
     # Contoh isi file di repo: 123.45.67.89|2026-12-30
     
-    IZIN_URL="https://raw.githubusercontent.com/username/repo/main/ip.txt"
+    IZIN_URL="https://raw.githubusercontent.com/Pujianto1219/repo/main/ip.txt"
     
     echo -e "${CYAN}[PROCESS] Memeriksa Izin IP Server...${NC}"
     
