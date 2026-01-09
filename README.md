@@ -7,7 +7,7 @@ UDP server installation for ZIVPN Tunnel (SSH/DNS/UDP) VPN app.
 
 ### install menu
 ```
-sysctl -w net.ipv6.conf.all.disable_ipv6=1 && sysctl -w net.ipv6.conf.default.disable_ipv6=1 && apt update && apt install -y bzip2 gzip coreutils screen curl && wget https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/setup.sh && chmod +x setup.sh && ./setup.sh
+rm -f setup.sh && wget https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
 
