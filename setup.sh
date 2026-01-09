@@ -1,50 +1,52 @@
 #!/bin/bash
-# ZiVPN Auto Installer (Ultimate Performance + Bot Notification)
-# Features: License Check, Manual Swap, CPU & Network Tuning, Domain Input, Install Report
 
-# --- 0. PERSIAPAN VARIABEL ---
-export DEBIAN_FRONTEND=noninteractive
+# --- Warna untuk Tampilan ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
+YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
-WHITE='\033[1;37m'
-NC='\033[0m'
+NC='\033[0m' # No Color
 
-# URL IZIN IP
-PERMISSION_URL="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/ip"
 
-# --- 1. CEK LICENSE (ACILSHOP) ---
-check_license() {
-    clear
-    echo -e "${YELLOW}Checking License...${NC}"
+# --- 3. Fungsi Cek IP & Durasi ---
+function check_license() {
+    # Ganti URL ini dengan URL raw text file izin Anda
+    # Format di server/repo HARUS: IP|TANGGAL_EXPIRED
+    # Contoh isi file di repo: 123.45.67.89|2026-12-30
     
-    MYIP=$(curl -s ifconfig.me)
-    IZIN=$(curl -s "$PERMISSION_URL")
-
-    if [[ $IZIN == *"$MYIP"* ]]; then
-        clear
-        echo -e "${GREEN}=============================================${NC}"
-        echo -e "${GREEN}          LICENSE VERIFIED - ACILSHOP        ${NC}"
-        echo -e "${GREEN}=============================================${NC}"
-        echo -e "${CYAN} Status   : ${GREEN}Active / Premium${NC}"
-        echo -e "${CYAN} IP VPS   : ${YELLOW}$MYIP${NC}"
-        echo -e "${GREEN}=============================================${NC}"
-        echo -e "License valid! Memulai konfigurasi..."
+    IZIN_URL="https://raw.githubusercontent.com/username/repo/main/ip.txt"
+    
+    echo -e "${CYAN}[PROCESS] Memeriksa Izin IP Server...${NC}"
+    
+    # Mengambil data dari repo (grep IP kita)
+    DATA_IZIN=$(curl -sS "$IZIN_URL" | grep "$MYIP")
+    
+    if [[ -n "$DATA_IZIN" ]]; then
+        # Memisahkan IP dan Tanggal menggunakan delimiter '|'
+        # Teknik ini berasumsi format di repo adalah: IP|TANGGAL
+        IFS='|' read -r REGISTERED_IP EXPIRED_DATE <<< "$DATA_IZIN"
+        
+        echo -e "${GREEN}[AKSES DITERIMA]${NC}"
+        echo -e "IP Server  : ${YELLOW}$REGISTERED_IP${NC}"
+        echo -e "Masa Aktif : ${GREEN}$EXPIRED_DATE${NC}"
+        echo -e "Status     : ${GREEN}Premium Lifetime/Active${NC}"
         sleep 2
     else
-        clear
-        echo -e "${RED}=============================================${NC}"
-        echo -e "${RED}          LICENSE INVALID - ACILSHOP         ${NC}"
-        echo -e "${RED}=============================================${NC}"
-        echo -e "${YELLOW} IP VPS   : ${RED}$MYIP${NC}"
-        echo -e "${WHITE} IP Anda belum terdaftar.${NC}"
-        echo -e "${RED}=============================================${NC}"
-        rm -f setup.sh
+        echo -e "${RED}[AKSES DITOLAK]${NC}"
+        echo -e "IP $MYIP tidak terdaftar di database kami."
+        echo -e "Silakan hubungi Admin AcilShop untuk mendaftarkan IP."
         exit 1
     fi
 }
-check_license
+
+# --- EKSEKUSI UTAMA ---
+clear
+check_license       # Cek IP dulu
+echo ""
+check_domain_pointing # Baru cek domain
+echo ""
+echo -e "${GREEN}Mulai proses instalasi script selanjutnya...${NC}"
+# Lanjut ke kodingan installasi Anda di bawah sini...
 
 # --- 2. KONFIGURASI SWAP RAM (MANUAL INPUT) ---
 clear
@@ -154,30 +156,52 @@ sleep 2
 
 # --- 4. INPUT DOMAIN ---
 clear
-echo ""
-echo "========================================================="
-echo "               KONFIGURASI DOMAIN ZIVPN                  "
-echo "========================================================="
-echo " Masukkan domain yang sudah dipointing ke IP VPS ini."
-echo " (Contoh: vpn.acilshop.com)"
-echo " * Tekan ENTER jika ingin otomatis menggunakan IP Address"
-echo "========================================================="
-printf " Masukkan Domain: "
-read domain_input
+# --- 1. Cek Koneksi & Install Dependency ---
+echo -e "${CYAN}[INFO] Memerlukan 'dnsutils' untuk pengecekan domain...${NC}"
+apt-get update -y > /dev/null 2>&1
+apt-get install dnsutils curl -y > /dev/null 2>&1
 
-mkdir -p /etc/zivpn > /dev/null 2>&1
+# Dapatkan IP VPS Saat Ini
+MYIP=$(curl -sS ipv4.icanhazip.com)
 
-if [ -z "$domain_input" ]; then
-    echo " -> Tidak ada input. Menggunakan IP Address..."
-    DOMAIN=$(curl -s ifconfig.me)
-else
-    DOMAIN="$domain_input"
-fi
+# --- 2. Fungsi Cek Domain (Looping) ---
+function check_domain_pointing() {
+    echo -e "${YELLOW}-----------------------------------------------------${NC}"
+    echo -e "Silakan Masukkan Domain yang ingin diinstall."
+    echo -e "Pastikan domain sudah dipointing ke IP: ${GREEN}$MYIP${NC}"
+    echo -e "${YELLOW}-----------------------------------------------------${NC}"
+    
+    while true; do
+        echo -n -e "Input Domain: "
+        read domain
+        
+        # Bersihkan spasi jika ada
+        domain=$(echo $domain | xargs)
 
-echo "$DOMAIN" > /etc/zivpn/domain
-echo ""
-echo " [OK] Domain tersimpan: $DOMAIN"
-sleep 1
+        # Cek IP dari domain tersebut menggunakan dig
+        # +short hanya mengambil IP-nya saja
+        domain_ip=$(dig +short "$domain" | head -n1)
+
+        echo -e "${CYAN}[PROCESS] Memeriksa pointing domain...${NC}"
+        sleep 2
+
+        # Logika Validasi
+        if [[ "$domain_ip" == "$MYIP" ]]; then
+            echo -e "${GREEN}[SUKSES] Domain $domain benar mengarah ke $MYIP.${NC}"
+            echo "$domain" > /root/domain # Simpan domain untuk keperluan installasi nanti
+            break # Keluar dari loop jika benar
+        elif [[ -z "$domain_ip" ]]; then
+             echo -e "${RED}[ERROR] Domain tidak ditemukan atau belum terdaftar DNS-nya.${NC}"
+             echo -e "Silakan cek penulisan atau tunggu propagasi DNS."
+             echo -e "Coba lagi...\n"
+        else
+            echo -e "${RED}[ERROR] Domain $domain mengarah ke $domain_ip (Bukan $MYIP).${NC}"
+            echo -e "Silakan perbaiki DNS Record (A Record) di Cloudflare/Domain Manager."
+            echo -e "Sistem akan menunggu domain terpointing dengan benar.\n"
+            # Loop akan mengulang minta input lagi
+        fi
+    done
+}
 
 # --- 5. INSTALL DEPENDENCIES & BINARY ---
 clear
