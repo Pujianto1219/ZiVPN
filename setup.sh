@@ -23,7 +23,7 @@ MYIP=$(curl -sS ipv4.icanhazip.com)
 # --- 2. FUNGSI CEK LICENSE (IP & DURASI) ---
 function check_license() {
     # Ganti URL ini dengan URL raw text file izin Anda
-    IZIN_URL="https://raw.githubusercontent.com/Pujianto1219/repo/main/ip.txt"
+    IZIN_URL="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/ip"
     
     clear
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
