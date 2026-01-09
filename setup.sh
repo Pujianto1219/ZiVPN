@@ -189,6 +189,29 @@ elif [[ "$ARCH" == "aarch64" ]]; then
 fi
 chmod +x /usr/local/bin/zivpn
 
+# Download Script XP
+wget -q https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/xp-trial.sh -O /usr/bin/xp-trial
+wget -q https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/xp-user.sh -O /usr/bin/xp-user
+
+chmod +x /usr/bin/xp-trial
+chmod +x /usr/bin/xp-user
+
+# Buat Database Kosong (Agar tidak error saat pertama run)
+touch /etc/zivpn/trial.db
+touch /etc/zivpn/user.db
+
+# --- SETTING CRONJOB TERPISAH ---
+# 1. XP Trial: Cek setiap 10 menit
+echo "*/10 * * * * root /usr/bin/xp-trial" > /etc/cron.d/xp_trial
+
+# 2. XP User: Cek setiap jam 12 malam (00:00)
+echo "0 0 * * * root /usr/bin/xp-user" > /etc/cron.d/xp_user
+
+# 3. Auto Reboot: Cek jam 05:00 Pagi (WIB) - Opsional, maintenance harian
+echo "0 5 * * * root reboot" > /etc/cron.d/auto_reboot
+
+service cron restart
+
 # --- 5. CONFIG & SSL ---
 mkdir -p /etc/zivpn
 cat <<EOF > /etc/zivpn/config.json
