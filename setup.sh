@@ -166,6 +166,60 @@ function install_swap() {
     fi
 }
 install_swap
+# ==========================================================
+#  FUNGSI OPTIMASI PERFORMANCE (CPU & BANDWIDTH)
+# ==========================================================
+function optimize_performance() {
+    clear
+    echo -e "${YELLOW}=============================================${NC}"
+    echo -e "${CYAN}       OPTIMASI CPU & BANDWIDTH (BBR)        ${NC}"
+    echo -e "${YELLOW}=============================================${NC}"
+    echo -e "${GREEN}[PROCESS] Sedang menyetel kernel...${NC}"
+
+    # 1. Enable TCP BBR (Google Congestion Control) - AGAR NGEBUT
+    # Cek apakah modul BBR tersedia
+    if grep -q "bbr" /etc/sysctl.conf; then
+        echo -e "${YELLOW}[INFO] BBR sudah aktif.${NC}"
+    else
+        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    fi
+
+    # 2. Tuning Kernel Network Buffer (Mengurangi Packet Loss)
+    cat <<EOF >> /etc/sysctl.conf
+fs.file-max = 1000000
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.core.netdev_max_backlog = 250000
+net.core.somaxconn = 4096
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 30
+net.ipv4.tcp_keepalive_time = 1200
+net.ipv4.ip_local_port_range = 10000 65000
+EOF
+
+    # 3. Apply Sysctl
+    sysctl -p > /dev/null 2>&1
+
+    # 4. Increase ULIMIT (Agar CPU kuat nampung banyak user login)
+    # Default Linux cuma 1024 connection, kita naikkan jadi unlimited
+    cat <<EOF >> /etc/security/limits.conf
+* soft nofile 512000
+* hard nofile 512000
+root soft nofile 512000
+root hard nofile 512000
+EOF
+
+    # 5. Timer Optimasi (Agar tidak lag saat idle)
+    echo 1 > /proc/sys/vm/drop_caches
+    
+    echo -e "${GREEN}[SUKSES] Optimasi Selesai!${NC}"
+    sleep 1
+}
+
+# JALANKAN FUNGSI OPTIMASI
+optimize_performance
 
 # --- 4. INSTALL CORE ---
 clear
@@ -182,8 +236,8 @@ fi
 chmod +x /usr/local/bin/zivpn
 
 # Download Script XP
-wget -q https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/xp-trial.sh -O /usr/bin/xp-trial
-wget -q https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/xp-user.sh -O /usr/bin/xp-user
+wget -q https://raw.githubusercontent.com/Pujianto1219/ZiVPN/Utils/main/xp-trial.sh -O /usr/bin/xp-trial
+wget -q https://raw.githubusercontent.com/Pujianto1219/ZiVPN/Utils/main/xp-user.sh -O /usr/bin/xp-user
 
 chmod +x /usr/bin/xp-trial
 chmod +x /usr/bin/xp-user
