@@ -20,19 +20,21 @@ else
     DOMAIN=$(curl -s ifconfig.me)
 fi
 
-# Cek JQ (Dependency Wajib)
-if ! command -v jq &> /dev/null; then 
-    echo "Installing JQ..."
-    apt-get install jq -y > /dev/null 2>&1
-fi
+# Cek JQ
+if ! command -v jq &> /dev/null; then apt-get install jq -y > /dev/null 2>&1; fi
 
 show_header() {
     clear
+    # Hitung RAM
+    ram_total=$(free -m | awk 'NR==2{printf "%.2fGB", $2/1024}')
+    ram_used=$(free -m | awk 'NR==2{printf "%.2fGB", $3/1024}')
+    
     echo -e "${CYAN}============================================${NC}"
     echo -e "${YELLOW}           ZiVPN SERVER MANAGER            ${NC}"
     echo -e "${CYAN}============================================${NC}"
     echo -e "${WHITE} Domain    : ${GREEN}$DOMAIN${NC}"
     echo -e "${WHITE} IP Server : ${YELLOW}$(curl -s ifconfig.me)${NC}"
+    echo -e "${WHITE} RAM Usage : ${CYAN}$ram_used / $ram_total${NC}"
     
     # Hitung total user
     TOTAL=$(jq '.auth.config | length' $CONFIG_FILE 2>/dev/null || echo "0")
@@ -48,11 +50,9 @@ add_user() {
     read -p "Masukkan Password Baru : " new_pass
     if [ -z "$new_pass" ]; then echo "Password kosong!"; sleep 1; return; fi
     
-    # Cek duplikat
     if jq -e ".auth.config[] | select(. == \"$new_pass\")" $CONFIG_FILE > /dev/null 2>&1; then
         echo -e "${RED}Error: Password sudah ada!${NC}"
     else
-        # Tambah ke JSON
         jq --arg pass "$new_pass" '.auth.config += [$pass]' $CONFIG_FILE > /tmp/config.tmp && mv /tmp/config.tmp $CONFIG_FILE
         systemctl restart zivpn
         echo -e "${GREEN}Sukses menambah user: $new_pass${NC}"
@@ -62,7 +62,6 @@ add_user() {
 
 trial_user() {
     echo -e "\n${YELLOW}=== TRIAL USER ===${NC}"
-    # Generate random trial
     trial_pass="trial$(shuf -i 1000-9999 -n 1)"
     
     jq --arg pass "$trial_pass" '.auth.config += [$pass]' $CONFIG_FILE > /tmp/config.tmp && mv /tmp/config.tmp $CONFIG_FILE
@@ -90,6 +89,14 @@ del_user() {
     read -n 1 -s -r -p "Tekan tombol untuk kembali..."
 }
 
+clear_cache() {
+    echo -e "\n${YELLOW}Membersihkan Cache RAM...${NC}"
+    sync; echo 3 > /proc/sys/vm/drop_caches
+    sleep 1
+    echo -e "${GREEN}Cache berhasil dibersihkan!${NC}"
+    read -n 1 -s -r -p "Tekan tombol untuk kembali..."
+}
+
 list_user() {
     echo -e "\n${YELLOW}=== LIST USER ===${NC}"
     LEN=$(jq '.auth.config | length' $CONFIG_FILE)
@@ -108,8 +115,9 @@ while true; do
     echo -e "[2] Trial User"
     echo -e "[3] Hapus User"
     echo -e "[4] Lihat User"
-    echo -e "[5] Restart Service"
-    echo -e "[6] Uninstall"
+    echo -e "[5] Bersihkan Cache RAM"
+    echo -e "[6] Restart Service"
+    echo -e "[7] Uninstall"
     echo -e "[x] Exit"
     read -p "Pilih: " opt
     case $opt in
@@ -117,8 +125,9 @@ while true; do
         2) trial_user ;;
         3) del_user ;;
         4) list_user ;;
-        5) systemctl restart zivpn; echo "Done."; sleep 1 ;;
-        6) 
+        5) clear_cache ;;
+        6) systemctl restart zivpn; echo "Done."; sleep 1 ;;
+        7) 
            echo "Uninstalling..."
            wget -q -O ziun.sh https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/uninstall.sh
            chmod +x ziun.sh && ./ziun.sh
