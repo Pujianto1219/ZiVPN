@@ -1,6 +1,6 @@
 #!/bin/bash
-# ZiVPN Auto Installer (Ultimate Performance)
-# Features: License Check, Manual Swap, CPU & Network Tuning, Domain Input
+# ZiVPN Auto Installer (Ultimate Performance + Bot Notification)
+# Features: License Check, Manual Swap, CPU & Network Tuning, Domain Input, Install Report
 
 # --- 0. PERSIAPAN VARIABEL ---
 export DEBIAN_FRONTEND=noninteractive
@@ -261,6 +261,36 @@ ufw allow 5667/udp > /dev/null 2>&1
 
 # Auto Reboot
 echo "0 5 * * * root reboot" > /etc/cron.d/auto_reboot
+
+# --- 10. NOTIFIKASI TELEGRAM (BARU) ---
+# ----------------------------------------------------------------------
+# [PENTING] GANTI TOKEN DAN ID DI BAWAH INI SEBELUM UPLOAD KE GITHUB
+# ----------------------------------------------------------------------
+BOT_TOKEN="8194078306:AAGcRbkEStZeHFd2Fj6e8p8c_YPUrXHl1dw"
+ADMIN_ID="6355497501"
+
+# Ambil Info Tambahan
+ISP=$(curl -s ipinfo.io/org)
+CITY=$(curl -s ipinfo.io/city)
+DATE=$(date +"%Y-%m-%d %H:%M:%S")
+
+# Format Pesan HTML
+MSG="
+<code>---------------------------</code>
+<b>✅ INSTALLATION SUCCESS</b>
+<code>---------------------------</code>
+<b>Domain   :</b> <code>$DOMAIN</code>
+<b>IP VPS   :</b> <code>$MYIP</code>
+<b>ISP      :</b> <code>$ISP</code>
+<b>Lokasi   :</b> <code>$CITY</code>
+<b>Swap RAM :</b> <code>$MSG</code>
+<b>Waktu    :</b> <code>$DATE</code>
+<code>---------------------------</code>
+<i>Auto Script by AcilShop</i>
+"
+
+# Kirim Pesan via Curl
+curl -s --max-time 10 -d "chat_id=$ADMIN_ID&disable_web_page_preview=1&parse_mode=html&text=$MSG" https://api.telegram.org/bot$BOT_TOKEN/sendMessage > /dev/null
 
 rm -f setup.sh > /dev/null 2>&1
 
