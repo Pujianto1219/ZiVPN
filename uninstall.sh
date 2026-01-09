@@ -1,58 +1,100 @@
 #!/bin/bash
-# - ZiVPN Remover & Menu Cleaner -
+# ==========================================
+#  ZIVPN UNINSTALLER (CLEAN ALL)
+#  Removes Menu, XP Scripts, Cronjob & DB
+# ==========================================
 
 # Warna
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 clear
-echo -e "${YELLOW}Uninstalling ZiVPN & Cleaning Menu...${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${YELLOW}        UNINSTALLING ZIVPN & CLEANING UP...     ${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "Mohon tunggu, sedang menghapus file..."
+sleep 2
 
-# 1. Stop & Disable Services (Sesuai script asli kamu)
-systemctl stop zivpn.service 1> /dev/null 2> /dev/null
-systemctl stop zivpn_backfill.service 1> /dev/null 2> /dev/null
-systemctl disable zivpn.service 1> /dev/null 2> /dev/null
-systemctl disable zivpn_backfill.service 1> /dev/null 2> /dev/null
+# 1. STOP & DISABLE SERVICE
+echo -e "${YELLOW}[1/6] Menghentikan Service VPN...${NC}"
+systemctl stop zivpn.service > /dev/null 2>&1
+systemctl disable zivpn.service > /dev/null 2>&1
 
-# 2. Hapus Service Files
-rm /etc/systemd/system/zivpn.service 1> /dev/null 2> /dev/null
-rm /etc/systemd/system/zivpn_backfill.service 1> /dev/null 2> /dev/null
+# 2. HAPUS SYSTEMD SERVICE
+rm -f /etc/systemd/system/zivpn.service
+systemctl daemon-reload
 
-# 3. Matikan Proses
-killall zivpn 1> /dev/null 2> /dev/null
+# 3. HAPUS CORE BINARY & CONFIG (DATABASE)
+echo -e "${YELLOW}[2/6] Menghapus Konfigurasi & Database...${NC}"
+# Hapus Binary
+rm -f /usr/local/bin/zivpn
+# Hapus Folder Config (Termasuk user.db, trial.db, cert, domain)
+rm -rf /etc/zivpn 
 
-# 4. Hapus File Utama & Config
-rm -rf /etc/zivpn 1> /dev/null 2> /dev/null
-rm /usr/local/bin/zivpn 1> /dev/null 2> /dev/null
+# 4. HAPUS SCRIPT MENU & XP (SESUAIKAN DENGAN UPDATE TERBARU)
+echo -e "${YELLOW}[3/6] Menghapus Menu & Script Helper...${NC}"
+rm -f /usr/bin/menu
+rm -f /usr/bin/xp-trial
+rm -f /usr/bin/xp-user
+rm -f /usr/bin/xp       # Jaga-jaga jika ada versi lama
+rm -f /usr/bin/zivpn    # Jaga-jaga jika ada symlink
 
-# 5. HAPUS MENU (Tambahan agar menu hilang)
-echo -e "${YELLOW}Removing Menu Shortcut...${NC}"
-rm -f /usr/bin/menu 1> /dev/null 2> /dev/null
+# 5. HAPUS CRONJOB (PENJADWAL)
+echo -e "${YELLOW}[4/6] Membersihkan Cronjob (Auto Delete)...${NC}"
+rm -f /etc/cron.d/xp_trial
+rm -f /etc/cron.d/xp_user
+rm -f /etc/cron.d/xp
+rm -f /etc/cron.d/auto_reboot
+service cron restart > /dev/null 2>&1
 
-# 6. Cek Status Proses
+# 6. HAPUS SWAP RAM (KEMBALIKAN SPACE SSD)
+# Cek apakah swapfile dari script ini ada
+if [ -f /swapfile ]; then
+    echo -e "${YELLOW}[5/6] Menghapus Swap RAM...${NC}"
+    # Matikan swap
+    swapoff /swapfile > /dev/null 2>&1
+    # Hapus baris swap di fstab agar tidak error saat reboot
+    sed -i '/swapfile/d' /etc/fstab
+    # Hapus file fisik
+    rm -f /swapfile
+else
+    echo -e "${GREEN}[INFO] Swap tidak ditemukan, melewati...${NC}"
+fi
+
+# 7. BERSIHKAN FIREWALL (IPTABLES)
+# Opsional: Hanya menghapus rule redirect port 5667
+iptables-save | grep -v "5667" | iptables-restore
+netfilter-persistent save > /dev/null 2>&1
+
+# 8. CEK STATUS AKHIR
+echo -e "${YELLOW}[6/6] Verifikasi Penghapusan...${NC}"
 if pgrep "zivpn" >/dev/null; then
-  echo -e "${RED}Server Running (Gagal Stop)${NC}"
+  echo -e "${RED}[ERROR] Gagal menghentikan proses ZIVPN!${NC}"
+  pkill zivpn
 else
-  echo -e "${GREEN}Server Stopped${NC}"
+  echo -e "${GREEN}[OK] Proses ZIVPN berhenti.${NC}"
 fi
 
-# 7. Cek Sisa File
-file="/usr/local/bin/zivpn"
-if [ -e "$file" ]; then
-  echo -e "${RED}Files still remaining, try again${NC}"
+if [ -d "/etc/zivpn" ]; then
+  echo -e "${RED}[ERROR] Folder config masih ada!${NC}"
+  rm -rf /etc/zivpn
 else
-  echo -e "${GREEN}Successfully Removed${NC}"
+  echo -e "${GREEN}[OK] Folder config bersih.${NC}"
 fi
 
-# 8. Bersihkan Cache & Swap (Sesuai script asli kamu)
-echo -e "${YELLOW}Cleaning Cache & Swap...${NC}"
+# 9. BERSIHKAN CACHE
 echo 3 > /proc/sys/vm/drop_caches
-sysctl -w vm.drop_caches=3 1> /dev/null 2> /dev/null
-swapoff -a && swapon -a
 
-echo -e "${GREEN}Done.${NC}"
+clear
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}      UNINSTALL SUKSES! BERSIH TOTAL.           ${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "Terima kasih telah menggunakan script AcilShop."
+echo -e ""
 
-# 9. Hapus File Uninstaller Ini Sendiri (Self-Destruct)
+# Hapus file uninstaller ini sendiri (Self Destruct)
+rm -f uninstall.sh
 rm -f ziun.sh
