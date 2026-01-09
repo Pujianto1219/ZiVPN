@@ -11,16 +11,10 @@ rm -f setup.sh && wget https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main
 ```
 
 
-#### Installation AMD
+#### Update
 ```
-wget -O zi.sh https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/zi.sh; sudo chmod +x zi.sh; sudo ./zi.sh
+wget -q https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/update.sh && chmod +x update.sh && ./update.sh
 ```
-
-#### Installation ARM
-```
-bash <(curl -fsSL https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/zi2.sh)
-```
-
 
 ### Uninstall
 
