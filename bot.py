@@ -5,10 +5,11 @@ import random
 import string
 import time
 from datetime import datetime
+import html
 
 # --- SETUP CONFIG ---
 BOT_TOKEN = "DATA_TOKEN"
-ADMIN_ID = DATA_ADMIN  # pastikan angka / int, atau string yg valid
+ADMIN_ID = DATA_ADMIN  # pastikan int atau string angka
 
 CONFIG_FILE = "/etc/zivpn/config.json"
 VPN_SERVICE = "zivpn"
@@ -17,30 +18,18 @@ VPN_PORT = "5667"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 
-# ---------- UTIL: MARKDOWNV2 SAFE ----------
-def mdv2_escape(text: str) -> str:
-    """
-    Escape karakter khusus MarkdownV2 Telegram.
-    """
-    if text is None:
-        return ""
-    escape_chars = r"_*[]()~`>#+-=|{}.!\\"
-    out = []
-    for ch in str(text):
-        if ch in escape_chars:
-            out.append("\\" + ch)
-        else:
-            out.append(ch)
-    return "".join(out)
+# ---------- UTIL ----------
+def h(text) -> str:
+    """Escape HTML agar aman di parse_mode=HTML."""
+    return html.escape(str(text), quote=False)
 
 
-# ---------- BANNER / KOLOM ----------
 def banner_acilshop() -> str:
-    # aman untuk MarkdownV2 (tanpa karakter yang rawan/di-escape berlebihan)
+    # HTML-safe, tetap keren
     return (
         "╔══════════════════════════════╗\n"
-        "║      🛒 *ACILSHOP* 🛒         ║\n"
-        "║  _Fast • Stable • Trusted_    ║\n"
+        "║      🛒 <b>ACILSHOP</b> 🛒        ║\n"
+        "║  <i>Fast • Stable • Trusted</i>   ║\n"
         "║  Support: @acilshop           ║\n"
         "╚══════════════════════════════╝\n\n"
     )
@@ -69,7 +58,6 @@ def read_config_users():
     with open(CONFIG_FILE, "r") as f:
         data = json.load(f)
 
-    # aman kalau struktur berubah sedikit
     auth = data.get("auth", {})
     cfg = auth.get("config", [])
     if not isinstance(cfg, list):
@@ -83,9 +71,6 @@ def write_config(data):
 
 
 def panel_info_text() -> str:
-    """
-    Kolom: Info user + tentang bot
-    """
     try:
         _, users = read_config_users()
         total_users = len(users)
@@ -97,21 +82,21 @@ def panel_info_text() -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     info_user = (
-        "👤 *INFO USER*\n"
-        f"• Total User: `{mdv2_escape(total_users)}`\n"
-        f"• Server IP : `{mdv2_escape(ip)}`\n"
-        f"• Port      : `{mdv2_escape(VPN_PORT)}`\n"
-        f"• Service   : `{mdv2_escape(status)}`\n"
-        f"• Updated   : `{mdv2_escape(now)}`\n"
+        "👤 <b>INFO USER</b>\n"
+        f"• Total User: <code>{h(total_users)}</code>\n"
+        f"• Server IP : <code>{h(ip)}</code>\n"
+        f"• Port      : <code>{h(VPN_PORT)}</code>\n"
+        f"• Service   : <code>{h(status)}</code>\n"
+        f"• Updated   : <code>{h(now)}</code>\n"
     )
 
     about_bot = (
-        "\n🤖 *TENTANG BOT*\n"
-        "• Nama   : `ZiVPN Panel Bot`\n"
-        "• Versi  : `1.0`\n"
-        "• Fitur  : `Trial / Add / List / Status`\n"
-        "• Owner  : `AcilShop`\n"
-        "• Support: `@acilshop`\n"
+        "\n🤖 <b>TENTANG BOT</b>\n"
+        "• Nama   : <code>ZiVPN Panel Bot</code>\n"
+        "• Versi  : <code>1.0</code>\n"
+        "• Fitur  : <code>Trial / Add / List / Status</code>\n"
+        "• Owner  : <code>AcilShop</code>\n"
+        "• Support: <code>@acilshop</code>\n"
     )
 
     return banner_acilshop() + info_user + about_bot
@@ -133,26 +118,20 @@ def main_menu_keyboard():
     return kb
 
 
-def is_admin(message_or_call) -> bool:
-    # message_or_call bisa Message atau CallbackQuery
+def is_admin(obj) -> bool:
     chat_id = None
     try:
-        chat_id = message_or_call.chat.id  # Message
+        chat_id = obj.chat.id  # Message
     except:
         try:
-            chat_id = message_or_call.message.chat.id  # CallbackQuery
+            chat_id = obj.message.chat.id  # CallbackQuery
         except:
             chat_id = None
-
     return str(chat_id) == str(ADMIN_ID)
 
 
-def deny_text(chat_id):
-    return bot.send_message(
-        chat_id,
-        "⛔ *Akses Ditolak\\!*",
-        parse_mode="MarkdownV2"
-    )
+def deny(chat_id):
+    bot.send_message(chat_id, "⛔ <b>Akses Ditolak!</b>", parse_mode="HTML")
 
 
 # ---------- COMMANDS ----------
@@ -161,14 +140,14 @@ def cmd_start(message):
     if not is_admin(message):
         return bot.reply_to(
             message,
-            "⛔ *Akses Ditolak\\!*\\nID Anda: `" + mdv2_escape(message.chat.id) + "`",
-            parse_mode="MarkdownV2"
+            f"⛔ <b>Akses Ditolak!</b>\nID Anda: <code>{h(message.chat.id)}</code>",
+            parse_mode="HTML"
         )
 
     bot.send_message(
         message.chat.id,
         panel_info_text() + "\nPilih menu di bawah ini:",
-        parse_mode="MarkdownV2",
+        parse_mode="HTML",
         reply_markup=main_menu_keyboard()
     )
 
@@ -181,68 +160,61 @@ def on_callback(call):
             bot.answer_callback_query(call.id, "Akses ditolak!", show_alert=True)
         except:
             pass
-        return deny_text(call.message.chat.id)
+        return deny(call.message.chat.id)
 
     data = call.data
     chat_id = call.message.chat.id
 
-    # biar tombol tidak "loading" terus
     try:
         bot.answer_callback_query(call.id)
     except:
         pass
 
     if data == "m_refresh":
-        # edit message panel biar rapi
         try:
             bot.edit_message_text(
                 panel_info_text() + "\nPilih menu di bawah ini:",
                 chat_id=chat_id,
                 message_id=call.message.message_id,
-                parse_mode="MarkdownV2",
+                parse_mode="HTML",
                 reply_markup=main_menu_keyboard()
             )
         except:
             bot.send_message(
                 chat_id,
                 panel_info_text() + "\nPilih menu di bawah ini:",
-                parse_mode="MarkdownV2",
+                parse_mode="HTML",
                 reply_markup=main_menu_keyboard()
             )
 
     elif data == "m_about":
-        bot.send_message(
-            chat_id,
-            panel_info_text(),
-            parse_mode="MarkdownV2",
-            reply_markup=main_menu_keyboard()
-        )
+        bot.send_message(chat_id, panel_info_text(), parse_mode="HTML", reply_markup=main_menu_keyboard())
 
     elif data == "m_status":
         status = get_service_status()
         ip = get_ip()
         txt = (
             banner_acilshop() +
-            "📡 *STATUS SERVER*\n"
-            f"• IP      : `{mdv2_escape(ip)}`\n"
-            f"• Port    : `{mdv2_escape(VPN_PORT)}`\n"
-            f"• Service : `{mdv2_escape(status)}`\n\n"
-            "Klik *Refresh Panel* untuk update info."
+            "📡 <b>STATUS SERVER</b>\n"
+            f"• IP      : <code>{h(ip)}</code>\n"
+            f"• Port    : <code>{h(VPN_PORT)}</code>\n"
+            f"• Service : <code>{h(status)}</code>\n\n"
+            "Klik <b>Refresh Panel</b> untuk update info."
         )
-        bot.send_message(chat_id, txt, parse_mode="MarkdownV2", reply_markup=main_menu_keyboard())
+        bot.send_message(chat_id, txt, parse_mode="HTML", reply_markup=main_menu_keyboard())
 
     elif data == "m_list":
         try:
             _, users = read_config_users()
             if not users:
-                txt = banner_acilshop() + "📭 *Belum ada user.*"
+                txt = banner_acilshop() + "📭 <b>Belum ada user.</b>"
             else:
-                list_txt = "\n".join([f"• `{mdv2_escape(u)}`" for u in users])
-                txt = banner_acilshop() + "📋 *LIST USER*\n\n" + list_txt
+                list_txt = "\n".join([f"• <code>{h(u)}</code>" for u in users])
+                txt = banner_acilshop() + "📋 <b>LIST USER</b>\n\n" + list_txt
         except Exception as e:
-            txt = banner_acilshop() + f"❌ *Gagal membaca config:* `{mdv2_escape(e)}`"
+            txt = banner_acilshop() + f"❌ <b>Gagal membaca config:</b> <code>{h(e)}</code>"
 
-        bot.send_message(chat_id, txt, parse_mode="MarkdownV2", reply_markup=main_menu_keyboard())
+        bot.send_message(chat_id, txt, parse_mode="HTML", reply_markup=main_menu_keyboard())
 
     elif data == "m_trial":
         rand_suffix = "".join(random.choices(string.digits, k=4))
@@ -251,12 +223,10 @@ def on_callback(call):
         try:
             data_json, users = read_config_users()
 
-            # Cek duplikat
             if user in users:
                 user = f"{user}x"
 
             users.append(user)
-            # pastikan struktur balik sesuai
             if "auth" not in data_json:
                 data_json["auth"] = {}
             data_json["auth"]["config"] = users
@@ -267,28 +237,28 @@ def on_callback(call):
             ip = get_ip()
             txt = (
                 banner_acilshop() +
-                "✅ *TRIAL SUKSES* ✅\n\n"
-                f"User : `{mdv2_escape(user)}`\n"
-                f"Pass : `{mdv2_escape(user)}`\n"
-                f"IP   : `{mdv2_escape(ip)}`\n"
-                f"Port : `{mdv2_escape(VPN_PORT)}`\n\n"
+                "✅ <b>TRIAL SUKSES</b> ✅\n\n"
+                f"User : <code>{h(user)}</code>\n"
+                f"Pass : <code>{h(user)}</code>\n"
+                f"IP   : <code>{h(ip)}</code>\n"
+                f"Port : <code>{h(VPN_PORT)}</code>\n\n"
                 "Gunakan tombol menu untuk aksi lainnya."
             )
-            bot.send_message(chat_id, txt, parse_mode="MarkdownV2", reply_markup=main_menu_keyboard())
+            bot.send_message(chat_id, txt, parse_mode="HTML", reply_markup=main_menu_keyboard())
 
         except Exception as e:
             bot.send_message(
                 chat_id,
-                banner_acilshop() + f"❌ Error: `{mdv2_escape(e)}`",
-                parse_mode="MarkdownV2",
+                banner_acilshop() + f"❌ <b>Error:</b> <code>{h(e)}</code>",
+                parse_mode="HTML",
                 reply_markup=main_menu_keyboard()
             )
 
     elif data == "m_add":
         msg = bot.send_message(
             chat_id,
-            banner_acilshop() + "✏️ *Ketik Username/Password baru:*",
-            parse_mode="MarkdownV2"
+            banner_acilshop() + "✏️ <b>Ketik Username/Password baru:</b>",
+            parse_mode="HTML"
         )
         bot.register_next_step_handler(msg, process_add_user_step)
 
@@ -302,16 +272,16 @@ def process_add_user_step(message):
 
     new_pass = (message.text or "").strip()
     if not new_pass:
-        return bot.reply_to(message, "❌ Input kosong.", parse_mode="MarkdownV2")
+        return bot.reply_to(message, "❌ <b>Input kosong.</b>", parse_mode="HTML")
 
     try:
         data_json, users = read_config_users()
 
         if new_pass in users:
-            return bot.reply_to(
-                message,
-                banner_acilshop() + "❌ *User sudah ada\\!*",
-                parse_mode="MarkdownV2",
+            return bot.send_message(
+                message.chat.id,
+                banner_acilshop() + "❌ <b>User sudah ada!</b>",
+                parse_mode="HTML",
                 reply_markup=main_menu_keyboard()
             )
 
@@ -325,16 +295,16 @@ def process_add_user_step(message):
 
         bot.send_message(
             message.chat.id,
-            banner_acilshop() + f"✅ User `{mdv2_escape(new_pass)}` berhasil ditambahkan.",
-            parse_mode="MarkdownV2",
+            banner_acilshop() + f"✅ <b>User</b> <code>{h(new_pass)}</code> <b>berhasil ditambahkan.</b>",
+            parse_mode="HTML",
             reply_markup=main_menu_keyboard()
         )
 
     except Exception as e:
         bot.send_message(
             message.chat.id,
-            banner_acilshop() + f"❌ Error: `{mdv2_escape(e)}`",
-            parse_mode="MarkdownV2",
+            banner_acilshop() + f"❌ <b>Error:</b> <code>{h(e)}</code>",
+            parse_mode="HTML",
             reply_markup=main_menu_keyboard()
         )
 
