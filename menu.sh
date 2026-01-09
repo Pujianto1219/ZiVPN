@@ -1,6 +1,7 @@
 #!/bin/bash
+# Menu Manager for ZiVPN
+# AcilShop Premium Script
 
-# Konfigurasi Path
 CONFIG_FILE="/etc/zivpn/config.json"
 DOMAIN_FILE="/etc/zivpn/domain"
 
@@ -19,8 +20,11 @@ else
     DOMAIN=$(curl -s ifconfig.me)
 fi
 
-# Cek JQ
-if ! command -v jq &> /dev/null; then apt-get install jq -y > /dev/null 2>&1; fi
+# Cek JQ (Dependency Wajib)
+if ! command -v jq &> /dev/null; then 
+    echo "Installing JQ..."
+    apt-get install jq -y > /dev/null 2>&1
+fi
 
 show_header() {
     clear
@@ -29,8 +33,13 @@ show_header() {
     echo -e "${CYAN}============================================${NC}"
     echo -e "${WHITE} Domain    : ${GREEN}$DOMAIN${NC}"
     echo -e "${WHITE} IP Server : ${YELLOW}$(curl -s ifconfig.me)${NC}"
+    
+    # Hitung total user
     TOTAL=$(jq '.auth.config | length' $CONFIG_FILE 2>/dev/null || echo "0")
     echo -e "${WHITE} Total User: ${YELLOW}$TOTAL${NC}"
+    
+    echo -e "${CYAN}============================================${NC}"
+    echo -e "${YELLOW}         POWERED BY ACILSHOP               ${NC}"
     echo -e "${CYAN}============================================${NC}"
 }
 
@@ -38,9 +47,12 @@ add_user() {
     echo -e "\n${YELLOW}=== TAMBAH USER ===${NC}"
     read -p "Masukkan Password Baru : " new_pass
     if [ -z "$new_pass" ]; then echo "Password kosong!"; sleep 1; return; fi
+    
+    # Cek duplikat
     if jq -e ".auth.config[] | select(. == \"$new_pass\")" $CONFIG_FILE > /dev/null 2>&1; then
         echo -e "${RED}Error: Password sudah ada!${NC}"
     else
+        # Tambah ke JSON
         jq --arg pass "$new_pass" '.auth.config += [$pass]' $CONFIG_FILE > /tmp/config.tmp && mv /tmp/config.tmp $CONFIG_FILE
         systemctl restart zivpn
         echo -e "${GREEN}Sukses menambah user: $new_pass${NC}"
@@ -50,10 +62,15 @@ add_user() {
 
 trial_user() {
     echo -e "\n${YELLOW}=== TRIAL USER ===${NC}"
+    # Generate random trial
     trial_pass="trial$(shuf -i 1000-9999 -n 1)"
+    
     jq --arg pass "$trial_pass" '.auth.config += [$pass]' $CONFIG_FILE > /tmp/config.tmp && mv /tmp/config.tmp $CONFIG_FILE
     systemctl restart zivpn
+    
     echo -e "${GREEN}Trial Created: $trial_pass${NC}"
+    echo -e "Domain : $DOMAIN"
+    echo -e "Port   : 5667"
     read -n 1 -s -r -p "Tekan tombol untuk kembali..."
 }
 
@@ -62,6 +79,7 @@ del_user() {
     jq -r '.auth.config[]' $CONFIG_FILE
     echo ""
     read -p "Masukkan Password yg dihapus: " del_pass
+    
     if jq -e ".auth.config[] | select(. == \"$del_pass\")" $CONFIG_FILE > /dev/null 2>&1; then
         jq --arg pass "$del_pass" '.auth.config -= [$pass]' $CONFIG_FILE > /tmp/config.tmp && mv /tmp/config.tmp $CONFIG_FILE
         systemctl restart zivpn
@@ -75,7 +93,11 @@ del_user() {
 list_user() {
     echo -e "\n${YELLOW}=== LIST USER ===${NC}"
     LEN=$(jq '.auth.config | length' $CONFIG_FILE)
-    if [ "$LEN" -eq 0 ]; then echo -e "${RED}(Belum ada user)${NC}"; else jq -r '.auth.config[]' $CONFIG_FILE; fi
+    if [ "$LEN" -eq 0 ]; then 
+        echo -e "${RED}(Belum ada user)${NC}"
+    else 
+        jq -r '.auth.config[]' $CONFIG_FILE
+    fi
     echo -e "-------------------------------"
     read -n 1 -s -r -p "Kembali..."
 }
