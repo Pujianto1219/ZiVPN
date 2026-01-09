@@ -1,19 +1,17 @@
 #!/bin/bash
 # ZiVPN Auto Installer
-# Features: IP License Check (AcilShop), Domain Input, Silent Install, Embedded Menu
+# Features: IP License Check (AcilShop), Domain Input, Silent Install, External Menu
 
 # --- WARNA & VARIABLE ---
 export DEBIAN_FRONTEND=noninteractive
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
+WHITE='\033[1;37m'
 NC='\033[0m'
 
-# URL IZIN IP (GANTI DENGAN URL RAW GITHUB KAMU)
-# Pastikan kamu sudah buat file bernama 'ip' di repo kamu
+# URL IZIN IP (Pastikan file 'ip' ada di repo kamu)
 PERMISSION_URL="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/ip"
 
 # --- FUNGSI CEK IP (LICENSE) ---
@@ -21,15 +19,11 @@ check_license() {
     clear
     echo -e "${YELLOW}Checking License...${NC}"
     
-    # Ambil IP VPS
     MYIP=$(curl -s ifconfig.me)
-    
-    # Ambil Data IP dari GitHub
     IZIN=$(curl -s "$PERMISSION_URL")
 
-    # Cek apakah MYIP ada di dalam IZIN
     if [[ $IZIN == *"$MYIP"* ]]; then
-        # === BANNER SUKSES (TERVERIFIKASI) ===
+        # === BANNER SUKSES ===
         clear
         echo -e "${GREEN}=============================================${NC}"
         echo -e "${GREEN}          LICENSE VERIFIED - ACILSHOP        ${NC}"
@@ -44,7 +38,7 @@ check_license() {
         echo -e "Memulai proses instalasi dalam 3 detik..."
         sleep 3
     else
-        # === BANNER GAGAL (TIDAK TERDAFTAR) ===
+        # === BANNER GAGAL ===
         clear
         echo -e "${RED}=============================================${NC}"
         echo -e "${RED}          LICENSE INVALID - ACILSHOP         ${NC}"
@@ -55,10 +49,7 @@ check_license() {
         echo -e "${WHITE} IP Anda belum terdaftar di database kami.${NC}"
         echo -e "${WHITE} Silakan hubungi Admin AcilShop untuk register.${NC}"
         echo -e "${RED}=============================================${NC}"
-        echo -e "${YELLOW} Telegram : @AcilShop (Contoh)${NC}"
-        echo -e "${RED}=============================================${NC}"
         
-        # Hapus file setup agar bersih
         rm -f setup.sh
         exit 1
     fi
@@ -67,11 +58,7 @@ check_license() {
 # JALANKAN PENGECEKAN
 check_license
 
-# =========================================================
-# JIKA LOLOS CEK IP, BARU LANJUT KE BAWAH INI
-# =========================================================
-
-# --- 1. BERSIHKAN LAYAR & INPUT DOMAIN ---
+# --- 1. CONFIGURASI DOMAIN ---
 clear
 echo ""
 echo "========================================================="
@@ -85,8 +72,9 @@ echo "========================================================="
 printf " Masukkan Domain: "
 read domain_input
 
-# Logika Simpan Domain
+# Buat folder konfigurasi
 mkdir -p /etc/zivpn > /dev/null 2>&1
+
 if [ -z "$domain_input" ]; then
     echo " -> Tidak ada input. Menggunakan IP Address..."
     DOMAIN=$(curl -s ifconfig.me)
@@ -94,19 +82,18 @@ else
     DOMAIN="$domain_input"
 fi
 
-# Simpan ke file untuk dibaca Menu nanti
+# Simpan ke file domain
 echo "$DOMAIN" > /etc/zivpn/domain
 echo ""
 echo " [OK] Domain tersimpan: $DOMAIN"
 sleep 2
 
-# --- 2. INSTALASI DEPENDENCIES (SILENT) ---
+# --- 2. INSTALASI DEPENDENCIES ---
 clear
 echo -e "${YELLOW}Updating System & Installing Dependencies...${NC}"
 apt-get update -y > /dev/null 2>&1
 apt-get install -y jq curl wget git zip unzip openssl python3 python3-pip > /dev/null 2>&1
 
-# Stop service lama
 systemctl stop zivpn.service > /dev/null 2>&1
 
 # --- 3. DOWNLOAD BINARY ---
@@ -122,7 +109,7 @@ else
 fi
 chmod +x /usr/local/bin/zivpn
 
-# --- 4. CONFIG JSON (KOSONG) ---
+# --- 4. BUAT CONFIG JSON (KOSONG) ---
 echo -e "${YELLOW}Creating Empty Config...${NC}"
 cat <<EOF > /etc/zivpn/config.json
 {
@@ -143,11 +130,10 @@ openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
     -subj "/C=ID/ST=JKT/L=JKT/O=ZiVPN/OU=VPN/CN=$DOMAIN" \
     -keyout "/etc/zivpn/zivpn.key" -out "/etc/zivpn/zivpn.crt" > /dev/null 2>&1
 
-# Tuning Network
 sysctl -w net.core.rmem_max=16777216 > /dev/null 2>&1
 sysctl -w net.core.wmem_max=16777216 > /dev/null 2>&1
 
-# --- 6. SERVICE SYSTEMD ---
+# --- 6. BUAT SERVICE ---
 cat <<EOF > /etc/systemd/system/zivpn.service
 [Unit]
 Description=zivpn VPN Server
@@ -169,120 +155,16 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
-# --- 7. MENU SCRIPT ---
-echo -e "${YELLOW}Installing Menu...${NC}"
-cat << 'EOF' > /usr/bin/menu
-#!/bin/bash
-
-CONFIG_FILE="/etc/zivpn/config.json"
-DOMAIN_FILE="/etc/zivpn/domain"
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-CYAN='\033[0;36m'
-YELLOW='\033[1;33m'
-WHITE='\033[1;37m'
-NC='\033[0m'
-
-# Load Domain
-if [ -f "$DOMAIN_FILE" ]; then
-    DOMAIN=$(cat "$DOMAIN_FILE")
-else
-    DOMAIN=$(curl -s ifconfig.me)
-fi
-
-# Cek JQ
-if ! command -v jq &> /dev/null; then apt-get install jq -y > /dev/null 2>&1; fi
-
-show_header() {
-    clear
-    echo -e "${CYAN}============================================${NC}"
-    echo -e "${YELLOW}           ZiVPN SERVER MANAGER            ${NC}"
-    echo -e "${CYAN}============================================${NC}"
-    echo -e "${WHITE} Domain    : ${GREEN}$DOMAIN${NC}"
-    echo -e "${WHITE} IP Server : ${YELLOW}$(curl -s ifconfig.me)${NC}"
-    TOTAL=$(jq '.auth.config | length' $CONFIG_FILE 2>/dev/null || echo "0")
-    echo -e "${WHITE} Total User: ${YELLOW}$TOTAL${NC}"
-    echo -e "${CYAN}============================================${NC}"
-}
-
-add_user() {
-    echo -e "\n${YELLOW}=== TAMBAH USER ===${NC}"
-    read -p "Masukkan Password Baru : " new_pass
-    if [ -z "$new_pass" ]; then echo "Password kosong!"; sleep 1; return; fi
-    if jq -e ".auth.config[] | select(. == \"$new_pass\")" $CONFIG_FILE > /dev/null 2>&1; then
-        echo -e "${RED}Error: Password sudah ada!${NC}"
-    else
-        jq --arg pass "$new_pass" '.auth.config += [$pass]' $CONFIG_FILE > /tmp/config.tmp && mv /tmp/config.tmp $CONFIG_FILE
-        systemctl restart zivpn
-        echo -e "${GREEN}Sukses menambah user: $new_pass${NC}"
-    fi
-    read -n 1 -s -r -p "Tekan tombol untuk kembali..."
-}
-
-trial_user() {
-    echo -e "\n${YELLOW}=== TRIAL USER ===${NC}"
-    trial_pass="trial$(shuf -i 1000-9999 -n 1)"
-    jq --arg pass "$trial_pass" '.auth.config += [$pass]' $CONFIG_FILE > /tmp/config.tmp && mv /tmp/config.tmp $CONFIG_FILE
-    systemctl restart zivpn
-    echo -e "${GREEN}Trial Created: $trial_pass${NC}"
-    read -n 1 -s -r -p "Tekan tombol untuk kembali..."
-}
-
-del_user() {
-    echo -e "\n${YELLOW}=== HAPUS USER ===${NC}"
-    jq -r '.auth.config[]' $CONFIG_FILE
-    echo ""
-    read -p "Masukkan Password yg dihapus: " del_pass
-    if jq -e ".auth.config[] | select(. == \"$del_pass\")" $CONFIG_FILE > /dev/null 2>&1; then
-        jq --arg pass "$del_pass" '.auth.config -= [$pass]' $CONFIG_FILE > /tmp/config.tmp && mv /tmp/config.tmp $CONFIG_FILE
-        systemctl restart zivpn
-        echo -e "${GREEN}User dihapus.${NC}"
-    else
-        echo -e "${RED}User tidak ditemukan.${NC}"
-    fi
-    read -n 1 -s -r -p "Tekan tombol untuk kembali..."
-}
-
-list_user() {
-    echo -e "\n${YELLOW}=== LIST USER ===${NC}"
-    LEN=$(jq '.auth.config | length' $CONFIG_FILE)
-    if [ "$LEN" -eq 0 ]; then echo -e "${RED}(Belum ada user)${NC}"; else jq -r '.auth.config[]' $CONFIG_FILE; fi
-    echo -e "-------------------------------"
-    read -n 1 -s -r -p "Kembali..."
-}
-
-while true; do
-    show_header
-    echo -e "[1] Tambah User"
-    echo -e "[2] Trial User"
-    echo -e "[3] Hapus User"
-    echo -e "[4] Lihat User"
-    echo -e "[5] Restart Service"
-    echo -e "[6] Uninstall"
-    echo -e "[x] Exit"
-    read -p "Pilih: " opt
-    case $opt in
-        1) add_user ;;
-        2) trial_user ;;
-        3) del_user ;;
-        4) list_user ;;
-        5) systemctl restart zivpn; echo "Done."; sleep 1 ;;
-        6) 
-           echo "Uninstalling..."
-           wget -q -O ziun.sh https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/uninstall.sh
-           chmod +x ziun.sh && ./ziun.sh
-           exit 0 ;;
-        x) exit 0 ;;
-        *) echo "Salah pilih"; sleep 1 ;;
-    esac
-done
-EOF
+# --- 7. DOWNLOAD MENU ---
+echo -e "${YELLOW}Downloading Menu Script...${NC}"
+wget -q https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/menu.sh -O /usr/bin/menu
 chmod +x /usr/bin/menu
 
-# --- 8. FINISHING ---
+# --- 8. START SERVICE ---
 systemctl enable zivpn.service > /dev/null 2>&1
 systemctl start zivpn.service > /dev/null 2>&1
 
+# Firewall
 IFACE=$(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1)
 iptables -t nat -A PREROUTING -i $IFACE -p udp --dport 6000:19999 -j DNAT --to-destination :5667
 ufw allow 6000:19999/udp > /dev/null 2>&1
