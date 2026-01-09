@@ -1,6 +1,9 @@
 #!/bin/bash
 
-# --- Warna ---
+# Config Path
+CONFIG_FILE="/etc/zivpn/config.json"
+
+# Warna
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
@@ -8,120 +11,123 @@ YELLOW='\033[1;33m'
 WHITE='\033[1;37m'
 NC='\033[0m'
 
-# --- Fungsi Header ---
+# Cek Dependency jq
+if ! command -v jq &> /dev/null; then
+    echo "Install jq dulu..."
+    apt-get install jq -y
+fi
+
 show_header() {
     clear
-    echo -e "${CYAN}=========================================${NC}"
-    echo -e "${YELLOW}           ZiVPN MAIN MENU              ${NC}"
-    echo -e "${CYAN}=========================================${NC}"
-    echo -e "${WHITE} OS        : $(cat /etc/os-release | grep -w PRETTY_NAME | head -n1 | sed 's/PRETTY_NAME//g' | sed 's/=//g' | sed 's/"//g')${NC}"
-    echo -e "${WHITE} IP Server : $(curl -s ifconfig.me)${NC}"
-    echo -e "${CYAN}=========================================${NC}"
+    echo -e "${CYAN}============================================${NC}"
+    echo -e "${YELLOW}           ZiVPN MANAGER (JSON MODE)       ${NC}"
+    echo -e "${CYAN}============================================${NC}"
+    echo -e "${WHITE} IP Server : ${YELLOW}$(curl -s ifconfig.me)${NC}"
+    # Hitung jumlah item dalam array "config"
+    TOTAL_USER=$(jq '.auth.config | length' $CONFIG_FILE)
+    echo -e "${WHITE} Total User: ${YELLOW}$TOTAL_USER${NC}"
+    echo -e "${CYAN}============================================${NC}"
 }
 
-# --- Loop Menu ---
+add_user() {
+    echo -e "\n${YELLOW}=== TAMBAH PASSWORD/USER ===${NC}"
+    read -p "Masukkan Password Baru : " new_pass
+
+    # Cek apakah password sudah ada di array
+    if jq -e ".auth.config[] | select(. == \"$new_pass\")" $CONFIG_FILE > /dev/null; then
+        echo -e "${RED}Error: Password '$new_pass' sudah ada!${NC}"
+    else
+        # Tambahkan password ke array JSON
+        jq --arg pass "$new_pass" '.auth.config += [$pass]' $CONFIG_FILE > /tmp/config.tmp && mv /tmp/config.tmp $CONFIG_FILE
+        
+        systemctl restart zivpn
+        echo -e "${GREEN}Sukses menambah user: $new_pass${NC}"
+    fi
+    read -n 1 -s -r -p "Tekan tombol untuk kembali..."
+}
+
+trial_user() {
+    echo -e "\n${YELLOW}=== BUAT AKUN TRIAL ===${NC}"
+    # Buat random string
+    trial_pass="trial$(shuf -i 1000-9999 -n 1)"
+    
+    # Tambahkan ke JSON
+    jq --arg pass "$trial_pass" '.auth.config += [$pass]' $CONFIG_FILE > /tmp/config.tmp && mv /tmp/config.tmp $CONFIG_FILE
+    
+    systemctl restart zivpn
+    
+    # (Opsional) Karena sistem JSON ZiVPN tidak menyimpan tanggal expired, 
+    # trial ini hanya menambah password. Penghapusan harus manual atau pakai cronjob lain.
+    
+    clear
+    echo -e "${CYAN}=================================${NC}"
+    echo -e "${GREEN}    TRIAL GENERATED              ${NC}"
+    echo -e "${CYAN}=================================${NC}"
+    echo -e "Password : ${WHITE}$trial_pass${NC}"
+    echo -e "Port UDP : ${WHITE}6000-19999${NC}"
+    echo -e "${CYAN}=================================${NC}"
+    read -n 1 -s -r -p "Tekan tombol untuk kembali..."
+}
+
+del_user() {
+    echo -e "\n${YELLOW}=== HAPUS PASSWORD/USER ===${NC}"
+    # Tampilkan list dulu
+    echo "Daftar User saat ini:"
+    jq -r '.auth.config[]' $CONFIG_FILE
+    echo ""
+    read -p "Masukkan Password yang ingin dihapus: " del_pass
+
+    if jq -e ".auth.config[] | select(. == \"$del_pass\")" $CONFIG_FILE > /dev/null; then
+        # Hapus item dari array
+        jq --arg pass "$del_pass" '.auth.config -= [$pass]' $CONFIG_FILE > /tmp/config.tmp && mv /tmp/config.tmp $CONFIG_FILE
+        
+        systemctl restart zivpn
+        echo -e "${GREEN}Password '$del_pass' berhasil dihapus.${NC}"
+    else
+        echo -e "${RED}Password tidak ditemukan!${NC}"
+    fi
+    read -n 1 -s -r -p "Tekan tombol untuk kembali..."
+}
+
+list_user() {
+    echo -e "\n${YELLOW}=== LIST USER (CONFIG.JSON) ===${NC}"
+    jq -r '.auth.config[]' $CONFIG_FILE
+    echo -e "-------------------------------"
+    read -n 1 -s -r -p "Tekan tombol untuk kembali..."
+}
+
+# --- MENU LOOP ---
 while true; do
     show_header
-    echo -e "${GREEN}[1]${NC} Create User Account"
-    echo -e "${GREEN}[2]${NC} Create Trial Account (24 Jam)"
+    echo -e "${GREEN}[1]${NC} Tambah User"
+    echo -e "${GREEN}[2]${NC} Trial User"
     echo -e "${GREEN}[3]${NC} Hapus User"
-    echo -e "${GREEN}[4]${NC} Cek Status Service"
-    echo -e "${GREEN}[5]${NC} Uninstall ZiVPN"
+    echo -e "${GREEN}[4]${NC} Lihat List User"
+    echo -e "${GREEN}[5]${NC} Restart Service"
+    echo -e "${GREEN}[6]${NC} Uninstall"
     echo -e "${GREEN}[x]${NC} Exit"
-    echo -e "${CYAN}=========================================${NC}"
-    read -p "Pilih menu : " option
+    echo -e "${CYAN}============================================${NC}"
+    read -p "Pilih Menu [1-x]: " option
 
     case $option in
-        1)
-            echo -e "\n${YELLOW}=== BUAT AKUN BARU ===${NC}"
-            read -p "Username   : " username
-            read -p "Password   : " password
-            read -p "Masa Aktif (hari): " masaaktif
-            
-            # Menghitung tanggal expired (Opsional, jika script butuh tanggal)
-            exp_date=$(date -d "+${masaaktif} days" +"%Y-%m-%d")
-
-            echo -e "${YELLOW}Membuat akun...${NC}"
-            
-            # ==========================================================
-            # [PENTING] MASUKKAN COMMAND ZIVPN DISINI
-            # Contoh logika: 
-            # /usr/local/bin/zivpn adduser "$username" "$password" --exp "$masaaktif"
-            # atau echo "$username $password" >> /etc/zivpn/passwd
-            # ==========================================================
-            
-            sleep 2
-            echo -e "${GREEN}Sukses! Akun $username telah dibuat.${NC}"
-            echo -e "Expired pada: $exp_date"
-            read -n 1 -s -r -p "Tekan sembarang tombol untuk kembali..."
-            ;;
-        
-        2)
-            echo -e "\n${YELLOW}=== BUAT AKUN TRIAL ===${NC}"
-            # Generate username random untuk trial
-            user_trial="trial$(shuf -i 1000-9999 -n 1)"
-            pass_trial="1"
-            masaaktif="1" # 1 Hari
-
-            echo -e "${YELLOW}Membuat akun trial...${NC}"
-
-            # ==========================================================
-            # [PENTING] MASUKKAN COMMAND ZIVPN DISINI
-            # Gunakan variabel $user_trial dan $pass_trial
-            # Contoh: 
-            # /usr/local/bin/zivpn adduser "$user_trial" "$pass_trial" --exp "24h"
-            # ==========================================================
-
-            sleep 2
-            clear
-            echo -e "${CYAN}=================================${NC}"
-            echo -e "${GREEN}    TRIAL ACCOUNT SUCCESS        ${NC}"
-            echo -e "${CYAN}=================================${NC}"
-            echo -e "Username : ${WHITE}$user_trial${NC}"
-            echo -e "Password : ${WHITE}$pass_trial${NC}"
-            echo -e "Expired  : ${WHITE}24 Jam${NC}"
-            echo -e "${CYAN}=================================${NC}"
-            read -n 1 -s -r -p "Tekan sembarang tombol untuk kembali..."
-            ;;
-
-        3)
-            echo -e "\n${YELLOW}=== HAPUS USER ===${NC}"
-            read -p "Masukkan Username: " deluser
-            
-            # ==========================================================
-            # MASUKKAN COMMAND HAPUS USER DISINI
-            # Contoh: /usr/local/bin/zivpn deluser "$deluser"
-            # ==========================================================
-            
-            echo -e "${GREEN}User $deluser berhasil dihapus.${NC}"
-            sleep 2
-            ;;
-
-        4)
-            echo -e "\n${YELLOW}Status Service:${NC}"
-            if pgrep "zivpn" >/dev/null; then
-                echo -e "${GREEN}ZiVPN Service is RUNNING${NC}"
-            else
-                echo -e "${RED}ZiVPN Service is STOPPED${NC}"
-            fi
-            read -n 1 -s -r -p "Tekan sembarang tombol untuk kembali..."
-            ;;
-        
-        5)
-            # Link ke script uninstall one-liner
-            echo -e "\n${RED}Menjalankan Uninstaller...${NC}"
-            wget -O ziun.sh https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/uninstall.sh && chmod +x ziun.sh && ./ziun.sh
-            exit 0
-            ;;
-
-        x)
-            clear
-            echo -e "Terima kasih."
-            exit 0
-            ;;
-        *)
-            echo -e "\n${RED}Pilihan tidak valid!${NC}"
-            sleep 1
-            ;;
+        1) add_user ;;
+        2) trial_user ;;
+        3) del_user ;;
+        4) list_user ;;
+        5) 
+           echo "Restarting..."
+           systemctl restart zivpn
+           echo "Done."
+           sleep 1
+           ;;
+        6)
+           echo -e "\n${RED}Menjalankan Uninstaller...${NC}"
+           wget -q -O ziun.sh https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/uninstall.sh
+           chmod +x ziun.sh
+           ./ziun.sh
+           exit 0
+           ;;
+        x) clear; exit 0 ;;
+        *) echo "Pilihan salah"; sleep 1 ;;
     esac
 done
