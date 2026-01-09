@@ -12,6 +12,9 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # --- 1. INSTALL DEPENDENCIES AWAL ---
+# [FIX] Set Timezone ke Jakarta (WIB) agar Cronjob XP akurat
+ln -fs /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
+
 # Kita butuh curl dan dnsutils segera
 apt-get update -y > /dev/null 2>&1
 apt-get install dnsutils curl -y > /dev/null 2>&1
@@ -21,7 +24,7 @@ apt-get install dnsutils curl -y > /dev/null 2>&1
 MYIP=$(curl -sS ipv4.icanhazip.com | tr -d '\r' | tr -d ' ')
 
 # ==========================================================
-#  FUNGSI VALIDASI IZIN (DIPERBAIKI)
+#  FUNGSI VALIDASI IZIN
 # ==========================================================
 function check_license() {
     # GANTI URL INI DENGAN URL RAW GITHUB ANDA
@@ -34,10 +37,7 @@ function check_license() {
     echo -e "IP Anda saat ini : ${GREEN}$MYIP${NC}"
     echo -e "Sedang mencocokkan dengan database..."
     
-    # 1. Ambil data, bersihkan karakter Windows (\r), lalu cari IP spesifik
-    #    grep -E "^$MYIP" artinya: Cari baris yang DIAWALI dengan IP kita.
-    #    Ini mencegah IP 1.1.1.1 lolos jika yang terdaftar 1.1.1.10
-    
+    # 1. Ambil data
     REPO_DATA=$(curl -sS --max-time 10 "$IZIN_URL" | tr -d '\r')
     
     # Cek apakah repo bisa diakses
@@ -48,13 +48,14 @@ function check_license() {
     fi
 
     # Filter data user dari database
-    # Mencari baris yang dimulai dengan IP user dan diikuti pemisah '|'
     USER_DATA=$(echo "$REPO_DATA" | grep -E "^$MYIP\|")
 
     # 2. Logika Validasi Ketat
     if [[ -n "$USER_DATA" ]]; then
-        # Jika data ditemukan (String tidak kosong)
         IFS='|' read -r REGISTERED_IP EXPIRED_DATE <<< "$USER_DATA"
+        
+        # [FIX] Export variabel agar bisa dibaca oleh notif Telegram di bawah
+        export EXPIRED_DATE="$EXPIRED_DATE"
         
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "STATUS IP   : ${GREEN}TERDAFTAR (PREMIUM)${NC}"
@@ -63,17 +64,12 @@ function check_license() {
         echo -e "${GREEN}Akses Diterima. Melanjutkan...${NC}"
         sleep 2
     else
-        # Jika data tidak ditemukan
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "STATUS IP   : ${RED}TIDAK TERDAFTAR / AKSES DITOLAK${NC}"
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "IP ${RED}$MYIP${NC} belum terdaftar di sistem kami."
         echo -e "Silakan hubungi Admin AcilShop untuk order."
-        
-        # Hapus script agar user tidak bisa mengakalinya (Opsional)
-        # rm -f setup.sh
-        
-        exit 1  # MEMAKSA SCRIPT BERHENTI DISINI
+        exit 1
     fi
 }
 
@@ -94,7 +90,6 @@ function check_domain_pointing() {
         read input_domain
         echo -e "${NC}"
         
-        # Bersihkan spasi input user
         DOMAIN=$(echo "$input_domain" | xargs)
 
         if [[ -z "$DOMAIN" ]]; then
@@ -103,10 +98,8 @@ function check_domain_pointing() {
         fi
 
         echo -e "${YELLOW}[PROCESS] Memeriksa DNS $DOMAIN...${NC}"
-        # Ambil IP asli dari domain
         domain_ip=$(dig +short "$DOMAIN" | head -n1)
         
-        # Validasi
         if [[ "$domain_ip" == "$MYIP" ]]; then
             echo -e "${GREEN}[SUKSES] Domain valid! ($DOMAIN -> $MYIP)${NC}"
             
@@ -115,7 +108,7 @@ function check_domain_pointing() {
             mkdir -p /etc/zivpn
             echo "$DOMAIN" > /root/domain
             echo "$DOMAIN" > /etc/zivpn/domain
-            break # KELUAR DARI LOOP
+            break 
             
         elif [[ -z "$domain_ip" ]]; then
              echo -e "${RED}[ERROR] Domain tidak ditemukan / DNS belum propagasi.${NC}"
@@ -141,7 +134,6 @@ check_license
 check_domain_pointing
 
 # --- 3. LANJUT KE SWAP & SYSTEM ---
-# (Kode di bawah ini hanya akan jalan jika check_license lolos)
 
 function install_swap() {
     clear
@@ -201,13 +193,16 @@ touch /etc/zivpn/trial.db
 touch /etc/zivpn/user.db
 
 # --- SETTING CRONJOB TERPISAH ---
+# Hapus cron lama jika ada (bersih-bersih)
+rm -f /etc/cron.d/xp_trial /etc/cron.d/xp_user /etc/cron.d/auto_reboot
+
 # 1. XP Trial: Cek setiap 10 menit
 echo "*/10 * * * * root /usr/bin/xp-trial" > /etc/cron.d/xp_trial
 
 # 2. XP User: Cek setiap jam 12 malam (00:00)
 echo "0 0 * * * root /usr/bin/xp-user" > /etc/cron.d/xp_user
 
-# 3. Auto Reboot: Cek jam 05:00 Pagi (WIB) - Opsional, maintenance harian
+# 3. Auto Reboot: Cek jam 05:00 Pagi (WIB)
 echo "0 5 * * * root reboot" > /etc/cron.d/auto_reboot
 
 service cron restart
@@ -265,8 +260,8 @@ iptables -t nat -A PREROUTING -i $IFACE -p udp --dport 6000:19999 -j DNAT --to-d
 netfilter-persistent save > /dev/null 2>&1
 netfilter-persistent reload > /dev/null 2>&1
 
-# Auto Reboot
-echo "0 5 * * * root reboot" > /etc/cron.d/auto_reboot
+# [NOTE] Bagian "Auto Reboot" di sini saya hapus karena sudah ada di Section 4.
+# Jika dibiarkan ganda, settingan di Section 4 akan tertimpa.
 
 # --- 6. TELEGRAM NOTIF ---
 BOT_TOKEN="8194078306:AAGcRbkEStZeHFd2Fj6e8p8c_YPUrXHl1dw"
@@ -282,6 +277,7 @@ TG_MSG="
 <b>ISP      :</b> <code>$ISP</code>
 <b>Lokasi   :</b> <code>$CITY</code>
 <b>Swap RAM :</b> <code>$SWAP_MSG</code>
+<b>Expired  :</b> <code>$EXPIRED_DATE</code>
 <code>---------------------------</code>
 <i>Auto Script by AcilShop</i>
 "
