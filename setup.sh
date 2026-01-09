@@ -1,8 +1,38 @@
 #!/bin/bash
-# ZiVPN Auto Installer (All-in-One)
-# Features: Domain Input, Silent Install (No Password), Custom Cert, Embedded Menu
+# Zivpn Auto Installer
+# Features: Prioritas Input Domain, Silent Install, Empty Config, Embedded Menu
 
-# --- 1. Persiapan & Input Domain ---
+# --- 1. BERSIHKAN LAYAR & INPUT DOMAIN (PRIORITAS UTAMA) ---
+clear
+echo ""
+echo "========================================================="
+echo "               KONFIGURASI DOMAIN ZIVPN                  "
+echo "========================================================="
+echo " Masukkan domain yang sudah dipointing ke IP VPS ini."
+echo " (Contoh: vpn.domainku.com)"
+echo ""
+echo " * Tekan ENTER jika ingin otomatis menggunakan IP Address"
+echo "========================================================="
+printf " Masukkan Domain: "
+read domain_input
+
+# Logika Simpan Domain
+mkdir -p /etc/zivpn > /dev/null 2>&1
+if [ -z "$domain_input" ]; then
+    echo " -> Tidak ada input. Menggunakan IP Address..."
+    DOMAIN=$(curl -s ifconfig.me)
+else
+    DOMAIN="$domain_input"
+fi
+
+# Simpan ke file untuk dibaca Menu nanti
+echo "$DOMAIN" > /etc/zivpn/domain
+echo ""
+echo " [OK] Domain tersimpan: $DOMAIN"
+echo " [OK] Memulai instalasi otomatis dalam 3 detik..."
+sleep 3
+
+# --- 2. PERSIAPAN INSTALASI (MODE SILENT) ---
 export DEBIAN_FRONTEND=noninteractive
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -10,43 +40,15 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 clear
-echo -e "${YELLOW}Initial Setup ZiVPN...${NC}"
-
-# Buat folder dulu
-mkdir -p /etc/zivpn > /dev/null 2>&1
-
-# === INPUT DOMAIN (Wajib di awal) ===
-echo -e "${GREEN}=============================================${NC}"
-echo -e "${YELLOW}           KONFIGURASI DOMAIN                ${NC}"
-echo -e "${GREEN}=============================================${NC}"
-echo -e "Masukkan domain yang sudah dipointing ke IP VPS ini."
-echo -e "Contoh: vpn.domainku.com"
-echo -e "Jika kosong, otomatis menggunakan IP Address."
-echo ""
-read -p "Domain: " domain_input
-
-# Logika penentuan domain
-if [ -z "$domain_input" ]; then
-    echo -e "${RED}Domain tidak diisi, menggunakan IP Address...${NC}"
-    DOMAIN=$(curl -s ifconfig.me)
-else
-    DOMAIN="$domain_input"
-fi
-
-# Simpan domain ke file (agar Menu bisa baca nanti)
-echo "$DOMAIN" > /etc/zivpn/domain
-echo -e "${GREEN}Domain disimpan: $DOMAIN${NC}"
-sleep 2
-
-# --- 2. Install Dependencies (Silent) ---
-echo -e "${YELLOW}Installing Dependencies...${NC}"
+echo -e "${YELLOW}Updating System & Installing Dependencies...${NC}"
+# Update & Install paket pendukung
 apt-get update -y > /dev/null 2>&1
 apt-get install -y jq curl wget git zip unzip openssl python3 python3-pip > /dev/null 2>&1
 
-# Stop service lama jika ada
+# Stop service lama
 systemctl stop zivpn.service > /dev/null 2>&1
 
-# --- 3. Download Binary (Auto Detect Arch) ---
+# --- 3. DOWNLOAD BINARY (AUTO DETECT) ---
 echo -e "${YELLOW}Downloading Core Service...${NC}"
 ARCH=$(uname -m)
 if [[ "$ARCH" == "x86_64" ]]; then
@@ -54,13 +56,12 @@ if [[ "$ARCH" == "x86_64" ]]; then
 elif [[ "$ARCH" == "aarch64" ]]; then
     wget -q https://github.com/Pujianto1219/ZiVPN/releases/download/1.0/udp-zivpn-linux-arm64 -O /usr/local/bin/zivpn
 else
-    echo -e "${RED}Arsitektur $ARCH tidak didukung!${NC}"
+    echo -e "${RED}Error: Arsitektur $ARCH tidak didukung!${NC}"
     exit 1
 fi
 chmod +x /usr/local/bin/zivpn
 
-# --- 4. Buat Config Kosong (Tanpa Password) ---
-# Ini kuncinya agar tidak ada prompt password. List user dibuat kosong [].
+# --- 4. BUAT CONFIG JSON (KOSONG & TANPA PASSWORD) ---
 echo -e "${YELLOW}Creating Empty Config...${NC}"
 cat <<EOF > /etc/zivpn/config.json
 {
@@ -75,8 +76,8 @@ cat <<EOF > /etc/zivpn/config.json
 }
 EOF
 
-# --- 5. Generate Sertifikat SSL (Sesuai Domain) ---
-echo -e "${YELLOW}Generating SSL Cert for $DOMAIN...${NC}"
+# --- 5. GENERATE SSL CERT (SESUAI DOMAIN INPUTAN) ---
+echo -e "${YELLOW}Generating SSL Certificate for $DOMAIN...${NC}"
 openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
     -subj "/C=ID/ST=JKT/L=JKT/O=ZiVPN/OU=VPN/CN=$DOMAIN" \
     -keyout "/etc/zivpn/zivpn.key" -out "/etc/zivpn/zivpn.crt" > /dev/null 2>&1
@@ -85,7 +86,7 @@ openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
 sysctl -w net.core.rmem_max=16777216 > /dev/null 2>&1
 sysctl -w net.core.wmem_max=16777216 > /dev/null 2>&1
 
-# --- 6. Buat Service Systemd ---
+# --- 6. BUAT SERVICE SYSTEMD ---
 cat <<EOF > /etc/systemd/system/zivpn.service
 [Unit]
 Description=zivpn VPN Server
@@ -107,8 +108,7 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
-# --- 7. EMBEDDED MENU SCRIPT ---
-# Menu langsung dibuat di sini agar tidak perlu download file terpisah
+# --- 7. PASANG MENU (EMBEDDED) ---
 echo -e "${YELLOW}Installing Menu...${NC}"
 cat << 'EOF' > /usr/bin/menu
 #!/bin/bash
@@ -218,15 +218,17 @@ done
 EOF
 chmod +x /usr/bin/menu
 
-# --- 8. Start Service & Cleanup ---
+# --- 8. FINISHING ---
 systemctl enable zivpn.service > /dev/null 2>&1
 systemctl start zivpn.service > /dev/null 2>&1
 
+# Setup Firewall
 IFACE=$(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1)
 iptables -t nat -A PREROUTING -i $IFACE -p udp --dport 6000:19999 -j DNAT --to-destination :5667
 ufw allow 6000:19999/udp > /dev/null 2>&1
 ufw allow 5667/udp > /dev/null 2>&1
 
+# Hapus file ini agar tidak menuh-menuhin
 rm -f setup.sh > /dev/null 2>&1
 
 clear
@@ -234,5 +236,5 @@ echo -e "${GREEN}======================================${NC}"
 echo -e "${GREEN}      INSTALASI SELESAI               ${NC}"
 echo -e "${GREEN}======================================${NC}"
 echo -e "Domain : ${YELLOW}$DOMAIN${NC}"
-echo -e "Cert   : ${YELLOW}/etc/zivpn/zivpn.crt${NC}"
-echo -e "Ketik ${YELLOW}menu${NC} untuk mulai."
+echo -e "Cert   : /etc/zivpn/zivpn.crt"
+echo -e "Ketik ${YELLOW}menu${NC} untuk mengelola user."
