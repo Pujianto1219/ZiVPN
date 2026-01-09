@@ -1,15 +1,84 @@
 #!/bin/bash
-# Zivpn Auto Installer
-# Features: Prioritas Input Domain, Silent Install, Empty Config, Embedded Menu
+# ZiVPN Auto Installer
+# Features: IP License Check (AcilShop), Domain Input, Silent Install, Embedded Menu
 
-# --- 1. BERSIHKAN LAYAR & INPUT DOMAIN (PRIORITAS UTAMA) ---
+# --- WARNA & VARIABLE ---
+export DEBIAN_FRONTEND=noninteractive
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# URL IZIN IP (GANTI DENGAN URL RAW GITHUB KAMU)
+# Pastikan kamu sudah buat file bernama 'ip' di repo kamu
+PERMISSION_URL="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/ip"
+
+# --- FUNGSI CEK IP (LICENSE) ---
+check_license() {
+    clear
+    echo -e "${YELLOW}Checking License...${NC}"
+    
+    # Ambil IP VPS
+    MYIP=$(curl -s ifconfig.me)
+    
+    # Ambil Data IP dari GitHub
+    IZIN=$(curl -s "$PERMISSION_URL")
+
+    # Cek apakah MYIP ada di dalam IZIN
+    if [[ $IZIN == *"$MYIP"* ]]; then
+        # === BANNER SUKSES (TERVERIFIKASI) ===
+        clear
+        echo -e "${GREEN}=============================================${NC}"
+        echo -e "${GREEN}          LICENSE VERIFIED - ACILSHOP        ${NC}"
+        echo -e "${GREEN}=============================================${NC}"
+        echo -e "${CYAN} Status   : ${GREEN}Active / Terdaftar${NC}"
+        echo -e "${CYAN} IP VPS   : ${YELLOW}$MYIP${NC}"
+        echo -e "${CYAN} Client   : ${WHITE}Premium User${NC}"
+        echo -e "${GREEN}=============================================${NC}"
+        echo -e "${GREEN}        WELCOME TO ACILSHOP AUTO SCRIPT      ${NC}"
+        echo -e "${GREEN}=============================================${NC}"
+        echo ""
+        echo -e "Memulai proses instalasi dalam 3 detik..."
+        sleep 3
+    else
+        # === BANNER GAGAL (TIDAK TERDAFTAR) ===
+        clear
+        echo -e "${RED}=============================================${NC}"
+        echo -e "${RED}          LICENSE INVALID - ACILSHOP         ${NC}"
+        echo -e "${RED}=============================================${NC}"
+        echo -e "${YELLOW} Status   : ${RED}Denied / Tidak Terdaftar${NC}"
+        echo -e "${YELLOW} IP VPS   : ${RED}$MYIP${NC}"
+        echo -e "${RED}=============================================${NC}"
+        echo -e "${WHITE} IP Anda belum terdaftar di database kami.${NC}"
+        echo -e "${WHITE} Silakan hubungi Admin AcilShop untuk register.${NC}"
+        echo -e "${RED}=============================================${NC}"
+        echo -e "${YELLOW} Telegram : @AcilShop (Contoh)${NC}"
+        echo -e "${RED}=============================================${NC}"
+        
+        # Hapus file setup agar bersih
+        rm -f setup.sh
+        exit 1
+    fi
+}
+
+# JALANKAN PENGECEKAN
+check_license
+
+# =========================================================
+# JIKA LOLOS CEK IP, BARU LANJUT KE BAWAH INI
+# =========================================================
+
+# --- 1. BERSIHKAN LAYAR & INPUT DOMAIN ---
 clear
 echo ""
 echo "========================================================="
 echo "               KONFIGURASI DOMAIN ZIVPN                  "
 echo "========================================================="
 echo " Masukkan domain yang sudah dipointing ke IP VPS ini."
-echo " (Contoh: vpn.domainku.com)"
+echo " (Contoh: vpn.acilshop.com)"
 echo ""
 echo " * Tekan ENTER jika ingin otomatis menggunakan IP Address"
 echo "========================================================="
@@ -29,26 +98,18 @@ fi
 echo "$DOMAIN" > /etc/zivpn/domain
 echo ""
 echo " [OK] Domain tersimpan: $DOMAIN"
-echo " [OK] Memulai instalasi otomatis dalam 3 detik..."
-sleep 3
+sleep 2
 
-# --- 2. PERSIAPAN INSTALASI (MODE SILENT) ---
-export DEBIAN_FRONTEND=noninteractive
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
+# --- 2. INSTALASI DEPENDENCIES (SILENT) ---
 clear
 echo -e "${YELLOW}Updating System & Installing Dependencies...${NC}"
-# Update & Install paket pendukung
 apt-get update -y > /dev/null 2>&1
 apt-get install -y jq curl wget git zip unzip openssl python3 python3-pip > /dev/null 2>&1
 
 # Stop service lama
 systemctl stop zivpn.service > /dev/null 2>&1
 
-# --- 3. DOWNLOAD BINARY (AUTO DETECT) ---
+# --- 3. DOWNLOAD BINARY ---
 echo -e "${YELLOW}Downloading Core Service...${NC}"
 ARCH=$(uname -m)
 if [[ "$ARCH" == "x86_64" ]]; then
@@ -61,7 +122,7 @@ else
 fi
 chmod +x /usr/local/bin/zivpn
 
-# --- 4. BUAT CONFIG JSON (KOSONG & TANPA PASSWORD) ---
+# --- 4. CONFIG JSON (KOSONG) ---
 echo -e "${YELLOW}Creating Empty Config...${NC}"
 cat <<EOF > /etc/zivpn/config.json
 {
@@ -76,7 +137,7 @@ cat <<EOF > /etc/zivpn/config.json
 }
 EOF
 
-# --- 5. GENERATE SSL CERT (SESUAI DOMAIN INPUTAN) ---
+# --- 5. GENERATE SSL ---
 echo -e "${YELLOW}Generating SSL Certificate for $DOMAIN...${NC}"
 openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
     -subj "/C=ID/ST=JKT/L=JKT/O=ZiVPN/OU=VPN/CN=$DOMAIN" \
@@ -86,7 +147,7 @@ openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
 sysctl -w net.core.rmem_max=16777216 > /dev/null 2>&1
 sysctl -w net.core.wmem_max=16777216 > /dev/null 2>&1
 
-# --- 6. BUAT SERVICE SYSTEMD ---
+# --- 6. SERVICE SYSTEMD ---
 cat <<EOF > /etc/systemd/system/zivpn.service
 [Unit]
 Description=zivpn VPN Server
@@ -108,7 +169,7 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
-# --- 7. PASANG MENU (EMBEDDED) ---
+# --- 7. MENU SCRIPT ---
 echo -e "${YELLOW}Installing Menu...${NC}"
 cat << 'EOF' > /usr/bin/menu
 #!/bin/bash
@@ -222,13 +283,11 @@ chmod +x /usr/bin/menu
 systemctl enable zivpn.service > /dev/null 2>&1
 systemctl start zivpn.service > /dev/null 2>&1
 
-# Setup Firewall
 IFACE=$(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1)
 iptables -t nat -A PREROUTING -i $IFACE -p udp --dport 6000:19999 -j DNAT --to-destination :5667
 ufw allow 6000:19999/udp > /dev/null 2>&1
 ufw allow 5667/udp > /dev/null 2>&1
 
-# Hapus file ini agar tidak menuh-menuhin
 rm -f setup.sh > /dev/null 2>&1
 
 clear
@@ -236,5 +295,5 @@ echo -e "${GREEN}======================================${NC}"
 echo -e "${GREEN}      INSTALASI SELESAI               ${NC}"
 echo -e "${GREEN}======================================${NC}"
 echo -e "Domain : ${YELLOW}$DOMAIN${NC}"
-echo -e "Cert   : /etc/zivpn/zivpn.crt"
+echo -e "Status : ${GREEN}VERIFIED (ACILSHOP PREMIUM)${NC}"
 echo -e "Ketik ${YELLOW}menu${NC} untuk mengelola user."
