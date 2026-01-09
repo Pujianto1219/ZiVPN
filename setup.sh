@@ -25,7 +25,7 @@ MYIP=$(curl -sS ipv4.icanhazip.com | tr -d '\r' | tr -d ' ')
 # ==========================================================
 function check_license() {
     # GANTI URL INI DENGAN URL RAW GITHUB ANDA
-    IZIN_URL="https://raw.githubusercontent.com/Pujianto1219/repo/main/ip.txt"
+    IZIN_URL="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main/ip"
     
     clear
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
