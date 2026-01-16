@@ -1,11 +1,14 @@
 #!/bin/bash
 # ==========================================
-#  ZIVPN MANAGER SETUP (FIXED VERSION)
+#  ZIVPN MANAGER SETUP (FINAL FIX)
 #  Repo: Pujianto1219/ZiVPN
 # ==========================================
 
 # --- VARS ---
-REPO="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main"
+# Menggunakan binary dari release repo kamu sendiri
+BINARY_URL="https://github.com/Pujianto1219/ZiVPN/releases/download/1.0/udp-zivpn-linux-amd64"
+REPO_RAW="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main"
+
 DIR="/etc/zivpn"
 BIN="/usr/local/bin/zivpn"
 BOT_SCRIPT="/usr/bin/bot.py"
@@ -18,7 +21,7 @@ NC='\033[0m'
 
 clear
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}      INSTALLER ZIVPN & BOT (REVISED)           ${NC}"
+echo -e "${GREEN}      INSTALLER ZIVPN & BOT (AUTOFT)            ${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 # 1. ROOT CHECK
@@ -32,21 +35,21 @@ echo -e "\n${GREEN}[+] Installing System Dependencies...${NC}"
 apt-get update -y > /dev/null 2>&1
 apt-get install -y python3 python3-pip git wget curl jq openssl net-tools iptables-persistent > /dev/null 2>&1
 
-# --- PERBAIKAN PENTING DI SINI ---
-# Menghapus library 'telebot' yang sering bikin crash
+# --- FIX LIBRARY PYTHON (Agar tidak crash) ---
 echo -e "${GREEN}[+] Fixing Python Libraries...${NC}"
 pip3 uninstall -y telebot > /dev/null 2>&1
 pip3 uninstall -y pyTelegramBotAPI > /dev/null 2>&1
-# Install hanya library yang benar
+# Install library yang benar
 pip3 install pyTelegramBotAPI > /dev/null 2>&1
-# ---------------------------------
+# ---------------------------------------------
 
 # 3. SETUP ZIVPN CORE
 echo -e "${GREEN}[+] Installing ZiVPN Core...${NC}"
 mkdir -p $DIR
 
-# Download Binary
-wget -q https://github.com/Pujianto1219/ZiVPN/releases/download/1.0/udp-zivpn-linux-amd64 -O $BIN
+# Download Binary dari Repo Kamu
+echo -e "    Downloading Binary..."
+wget -q "$BINARY_URL" -O $BIN
 chmod +x $BIN
 
 # Generate Certificate
@@ -55,8 +58,8 @@ openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
     -subj "/C=ID/ST=Jakarta/L=Jakarta/O=Zivpn/CN=zivpn" \
     -keyout "$DIR/zivpn.key" -out "$DIR/zivpn.crt" > /dev/null 2>&1
 
-# Download Config Default
-wget -q "$REPO/config.json" -O "$DIR/config.json"
+# Download Config Default dari Repo Kamu
+wget -q "$REPO_RAW/config.json" -O "$DIR/config.json"
 
 # Setup Systemd ZIVPN
 cat <<EOF > /etc/systemd/system/zivpn.service
@@ -92,10 +95,10 @@ EOF
 
 # Download Script Bot
 echo -e "    Downloading Bot Script..."
-wget -q "$REPO/bot.py" -O $BOT_SCRIPT
+wget -q "$REPO_RAW/bot.py" -O $BOT_SCRIPT
 chmod +x $BOT_SCRIPT
 
-# Setup Systemd Bot (Dengan Environment Log)
+# Setup Systemd Bot
 cat <<EOF > /etc/systemd/system/zivpn-bot.service
 [Unit]
 Description=ZiVPN Telegram Bot Manager
@@ -132,4 +135,4 @@ echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${GREEN}           INSTALASI SUKSES!                    ${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e " Silakan cek bot Telegram Anda sekarang."
-echo -e " Jika bot masih diam, ketik: journalctl -u zivpn-bot -f"
+echo -e " Binary Source: Pujianto1219/ZiVPN (Release 1.0)"
