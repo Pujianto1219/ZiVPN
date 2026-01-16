@@ -1,160 +1,108 @@
 #!/bin/bash
 # ==========================================
-#  ZIVPN ULTIMATE SETUP
-#  Core Logic: zi.sh | Manager: Python Bot
+#  ZIVPN MANAGER SETUP
 #  Repo: Pujianto1219/ZiVPN
+#  Dev : Pujianto1219
 # ==========================================
+
+# --- CONFIG ---
+REPO="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main"
+DIR="/etc/zivpn"
+BIN="/usr/local/bin/zivpn"
+BOT_SCRIPT="/usr/bin/bot.py"
 
 # --- WARNA ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# --- CONFIG ---
-REPO="https://raw.githubusercontent.com/Pujianto1219/ZiVPN/main"
-BOT_DIR="/usr/bin"
-CONFIG_DIR="/etc/zivpn"
-BOT_CONFIG="${CONFIG_DIR}/bot.json"
-CORE_CONFIG="${CONFIG_DIR}/config.json"
-
 clear
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${YELLOW}      INSTALLER ZIVPN CORE & BOT TELEGRAM       ${NC}"
+echo -e "${GREEN}      INSTALLER ZIVPN & TELEGRAM BOT MANAGER    ${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-# 1. CEK ROOT
+# 1. ROOT CHECK
 if [ "${EUID}" -ne 0 ]; then
     echo -e "${RED}Please run as root${NC}"
     exit 1
 fi
 
-# 2. UPDATE SYSTEM & INSTALL DEPENDENCIES
-echo -e "\n${GREEN}[1/5] Updating System...${NC}"
-sudo apt-get update && apt-get upgrade -y > /dev/null 2>&1
-apt-get install python3 python3-pip git wget curl jq openssl net-tools -y > /dev/null 2>&1
+# 2. INSTALL DEPENDENCIES
+echo -e "\n${GREEN}[+] Installing Dependencies...${NC}"
+apt-get update -y > /dev/null 2>&1
+apt-get install -y python3 python3-pip git wget curl jq openssl net-tools iptables-persistent > /dev/null 2>&1
 
-# Stop service lama jika ada
-systemctl stop zivpn.service > /dev/null 2>&1
-systemctl stop zivpn-bot.service > /dev/null 2>&1
+# Install Python Libs untuk Bot
+pip3 install pyTelegramBotAPI telebot > /dev/null 2>&1
 
-# 3. INSTALL ZIVPN CORE (Logika dari zi.sh)
-echo -e "\n${GREEN}[2/5] Installing ZiVPN Core (UDP)...${NC}"
+# 3. SETUP ZIVPN CORE
+echo -e "${GREEN}[+] Installing ZiVPN Core...${NC}"
+mkdir -p $DIR
 
-# Download Binary
-echo "Downloading UDP Service..."
-wget -q https://github.com/Pujianto1219/ZiVPN/releases/download/1.0/udp-zivpn-linux-amd64 -O /usr/local/bin/zivpn
-chmod +x /usr/local/bin/zivpn
+# Download Binary (Menggunakan binary official/stabil)
+wget -q https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-amd64 -O $BIN
+chmod +x $BIN
 
-# Setup Config Directory
-mkdir -p /etc/zivpn
+# Generate Certificate
+echo -e "    Generating SSL Certificate..."
+openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
+    -subj "/C=ID/ST=Jakarta/L=Jakarta/O=Zivpn/CN=zivpn" \
+    -keyout "$DIR/zivpn.key" -out "$DIR/zivpn.crt" > /dev/null 2>&1
 
-# Download Config Default
-wget -q ${REPO}/config.json -O ${CORE_CONFIG}
+# Download Config Default dari Repo Kamu
+wget -q "$REPO/config.json" -O "$DIR/config.json"
 
-# Generate Certificate (Logika zi.sh)
-echo "Generating SSL Certificates..."
-openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
-    -subj "/C=US/ST=California/L=Los Angeles/O=Zivpn/OU=IT/CN=zivpn" \
-    -keyout "/etc/zivpn/zivpn.key" -out "/etc/zivpn/zivpn.crt" > /dev/null 2>&1
-
-# Sysctl Tuning (Logika zi.sh)
-sysctl -w net.core.rmem_max=16777216 > /dev/null 2>&1
-sysctl -w net.core.wmem_max=16777216 > /dev/null 2>&1
-
-# Create Systemd Service (Logika zi.sh)
+# Setup Systemd ZIVPN
 cat <<EOF > /etc/systemd/system/zivpn.service
 [Unit]
-Description=zivpn VPN Server
+Description=ZiVPN Server
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/etc/zivpn
-ExecStart=/usr/local/bin/zivpn server -c /etc/zivpn/config.json
+WorkingDirectory=$DIR
+ExecStart=$BIN server -c $DIR/config.json
 Restart=always
 RestartSec=3
-Environment=ZIVPN_LOG_LEVEL=info
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# 4. KONFIGURASI PASSWORD AWAL (Logika zi.sh)
-echo -e "\n${YELLOW}[USER CONFIGURATION]${NC}"
-read -p "Masukkan password awal user (pisahkan koma jika banyak, tekan enter untuk default 'zi'): " input_config
+# 4. SETUP BOT TELEGRAM
+echo -e "\n${GREEN}[+] Configuring Telegram Bot...${NC}"
 
-if [ -n "$input_config" ]; then
-    # Ubah input "pass1,pass2" menjadi format JSON array
-    IFS=',' read -r -a config <<< "$input_config"
-    # Format ulang string untuk sed replacement
-    new_config_str="\"config\": [$(printf "\"%s\"," "${config[@]}" | sed 's/,$//')]"
-else
-    # Default config
-    new_config_str="\"config\": [\"zi\"]"
-fi
+# Input Token Bot
+echo -e "${CYAN}-----------------------------------------${NC}"
+read -p "Masukkan Bot Token (dari BotFather) : " bot_token
+read -p "Masukkan ID Admin (ID Telegrammu)   : " admin_id
+echo -e "${CYAN}-----------------------------------------${NC}"
 
-# Inject Password ke Config.json
-sed -i -E "s/\"config\": ?\[.*\]/${new_config_str}/g" ${CORE_CONFIG}
-
-# Setup Firewall (Logika zi.sh)
-echo "Setting up Firewall..."
-iptables -t nat -A PREROUTING -i $(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1) -p udp --dport 6000:19999 -j DNAT --to-destination :5667
-# Instal iptables-persistent agar rule tidak hilang saat reboot
-echo iptables-persistent iptables-persistent/autosave_v4 boolean true | sudo debconf-set-selections
-echo iptables-persistent iptables-persistent/autosave_v6 boolean true | sudo debconf-set-selections
-apt-get install iptables-persistent -y > /dev/null 2>&1
-netfilter-persistent save > /dev/null 2>&1
-
-# Start Core Service
-systemctl daemon-reload
-systemctl enable zivpn.service > /dev/null 2>&1
-systemctl start zivpn.service > /dev/null 2>&1
-
-# 5. INSTALL BOT TELEGRAM
-echo -e "\n${GREEN}[3/5] Installing Telegram Bot...${NC}"
-
-# Install Python Libs
-pip3 install pyTelegramBotAPI > /dev/null 2>&1
-pip3 install telebot > /dev/null 2>&1
-
-# Input Data Bot
-echo -e "${YELLOW}[BOT CONFIGURATION]${NC}"
-echo -e "Silakan masukkan data dari @BotFather:"
-read -p "Input Bot Token : " bot_token
-read -p "Input Admin ID  : " admin_id
-
-if [ -z "$bot_token" ] || [ -z "$admin_id" ]; then
-    echo -e "${RED}[WARNING] Data bot kosong. Bot tidak akan aktif otomatis.${NC}"
-else
-    # Simpan Config Bot
-    cat <<EOF > $BOT_CONFIG
+# Simpan Config Bot
+cat <<EOF > $DIR/bot_config.json
 {
-  "bot_token": "$bot_token",
-  "admin_id": "$admin_id"
+    "bot_token": "$bot_token",
+    "admin_id": "$admin_id"
 }
 EOF
-fi
 
-# Download Script Bot
-wget -q "${REPO}/bot.py" -O ${BOT_DIR}/bot.py
-chmod +x ${BOT_DIR}/bot.py
+# Download Script Bot dari Repo Kamu
+echo -e "    Downloading Bot Script..."
+wget -q "$REPO/bot.py" -O $BOT_SCRIPT
+chmod +x $BOT_SCRIPT
 
-# Create Systemd for Bot
+# Setup Systemd Bot
 cat <<EOF > /etc/systemd/system/zivpn-bot.service
 [Unit]
-Description=ZiVPN Telegram Bot
+Description=ZiVPN Telegram Bot Manager
 After=network.target
 
 [Service]
 User=root
-WorkingDirectory=${BOT_DIR}
-ExecStart=/usr/bin/python3 bot.py
+WorkingDirectory=$DIR
+ExecStart=/usr/bin/python3 $BOT_SCRIPT
 Restart=always
 RestartSec=3
 
@@ -162,29 +110,28 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-# Start Bot Service
-if [ -f "$BOT_CONFIG" ]; then
-    systemctl enable zivpn-bot > /dev/null 2>&1
-    systemctl start zivpn-bot > /dev/null 2>&1
-fi
+# 5. FIREWALL & START
+echo -e "${GREEN}[+] Finalizing Setup...${NC}"
 
-# 6. SETUP TAMBAHAN (Database Trial)
-touch /etc/zivpn/user.db
-touch /etc/zivpn/trial.db
+# Iptables Rule (Redirect port range ke ZiVPN port)
+iptables -t nat -A PREROUTING -p udp --dport 6000:19999 -j DNAT --to-destination :5667
+netfilter-persistent save > /dev/null 2>&1
 
-# Cleanup
-rm zi.* 1> /dev/null 2>&1
-rm setup.sh 1> /dev/null 2>&1
+# Enable & Start Services
+systemctl daemon-reload
+systemctl enable zivpn
+systemctl start zivpn
+systemctl enable zivpn-bot
+systemctl start zivpn-bot
 
-# SELESAI
+# Database File Creation
+touch $DIR/users.db
+
 clear
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}           INSTALASI SELESAI!                   ${NC}"
+echo -e "${GREEN}           INSTALLATION SUCCESS!                ${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e " Core Status : $(systemctl is-active zivpn.service)"
-echo -e " Bot Status  : $(systemctl is-active zivpn-bot.service)"
-echo -e ""
-echo -e " Port VPN    : 6000-19999 (UDP)"
-echo -e " Bot Token   : ${bot_token}"
-echo -e ""
-echo -e " Silakan cek bot Telegram Anda."
+echo -e " Command Menu : ketik /menu di Bot Telegram"
+echo -e " Port UDP     : 6000-19999"
+echo -e " Bot Status   : $(systemctl is-active zivpn-bot)"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
