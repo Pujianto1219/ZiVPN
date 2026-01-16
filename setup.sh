@@ -46,7 +46,7 @@ echo -e "${GREEN}[+] Installing ZiVPN Core...${NC}"
 mkdir -p $DIR
 
 # Download Binary
-wget -q https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-amd64 -O $BIN
+wget -q https://github.com/Pujianto1219/ZiVPN/releases/download/1.0/udp-zivpn-linux-amd64 -O $BIN
 chmod +x $BIN
 
 # Generate Certificate
